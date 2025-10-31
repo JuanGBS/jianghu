@@ -15,8 +15,9 @@ function App() {
   }, []);
 
   const handleSaveCharacter = (characterData) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(characterData));
-    setCharacter(characterData);
+    const characterWithSkills = { ...characterData, skills: [] };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(characterWithSkills));
+    setCharacter(characterWithSkills);
   };
 
   const handleDeleteCharacter = () => {
@@ -24,13 +25,20 @@ function App() {
     setCharacter(null);
   };
 
+  const handleUpdateCharacter = (updatedCharacter) => {
+    setCharacter(updatedCharacter);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedCharacter));
+  };
+
   return (
-    // REMOVIDAS as classes de tema escuro. Agora ele vai usar o body do index.css
     <main>
       {character ? (
-        <CharacterSheet character={character} onDelete={handleDeleteCharacter} />
+        <CharacterSheet 
+          character={character} 
+          onDelete={handleDeleteCharacter} 
+          onUpdateCharacter={handleUpdateCharacter} 
+        />
       ) : (
-        // O SheetManager agora controla todo o seu próprio layout
         <SheetManager onSave={handleSaveCharacter} />
       )}
     </main>
