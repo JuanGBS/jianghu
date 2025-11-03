@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 function EditableStat({ label, currentValue, maxValue, onSave, colorClass }) {
-  // A CORREÇÃO ESTÁ AQUI: A palavra "anidar" foi removida.
   const [isEditing, setIsEditing] = useState(false);
   const [value, setValue] = useState(currentValue);
   const inputRef = useRef(null);

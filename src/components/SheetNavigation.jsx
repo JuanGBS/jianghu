@@ -1,5 +1,4 @@
 import React from 'react';
-// Ícones para as abas
 import { UserCircleIcon, SparklesIcon } from '@heroicons/react/24/solid';
 
 function SheetNavigation({ activeTab, setActiveTab }) {
@@ -9,7 +8,6 @@ function SheetNavigation({ activeTab, setActiveTab }) {
   ];
 
   return (
-    // Container fixo no final da página
     <div className="fixed bottom-0 left-0 right-0 flex justify-center pb-8 z-50">
       <div className="flex items-center space-x-4 bg-white/80 backdrop-blur-sm p-3 rounded-full shadow-xl">
         {tabs.map((tab) => {

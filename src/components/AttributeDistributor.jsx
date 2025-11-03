@@ -22,7 +22,6 @@ function AttributeDistributor({ points, clanBonus, onPointsChange }) {
 
   return (
     <div>
-      {/* --- MUDANÇA APLICADA AQUI --- */}
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-xl font-semibold text-brand-text">Distribua seus Atributos</h3>
         <span className="bg-brand-accent/80 text-purple-900 font-bold text-lg rounded-lg px-3 py-1 min-w-[40px] text-center">

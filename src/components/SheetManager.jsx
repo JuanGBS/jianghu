@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { CLANS_DATA } from '../data/clans';
 import ClanSelector from './ClanSelector';
 import AttributeDistributor from './AttributeDistributor';
-import CalculatedStats from './CalculatedStats'; // O import já estava aqui, o que é bom
+import CalculatedStats from './CalculatedStats';
 import characterArt from '../assets/character-art.png';
 
 const initialCharacter = {
@@ -84,7 +84,6 @@ function SheetManager({ onSave }) {
           </div>
           {character.clan ? (
             <>
-              {/* --- A LINHA ABAIXO FOI RESTAURADA --- */}
               <CalculatedStats stats={calculatedStats} />
               <AttributeDistributor points={character.distributedPoints} clanBonus={character.clanBonus} onPointsChange={handlePointsChange} />
             </>

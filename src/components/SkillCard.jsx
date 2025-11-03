@@ -1,7 +1,7 @@
 import React from 'react';
+import { PencilSquareIcon } from '@heroicons/react/24/solid';
 
-// Novas props: isExpanded para saber se está aberto, e onToggle para ser chamado ao clicar.
-function SkillCard({ skill, onDelete, isExpanded, onToggle }) {
+function SkillCard({ skill, onDelete, onEdit, isExpanded, onToggle }) {
   return (
     <div className="bg-white rounded-xl shadow-md overflow-hidden">
       <button 
@@ -10,16 +10,26 @@ function SkillCard({ skill, onDelete, isExpanded, onToggle }) {
       >
         <div className="flex justify-between items-start">
           <h4 className="font-bold text-lg text-brand-text">{skill.name}</h4>
-          {/* O botão de deletar agora é independente do toggle */}
-          <button 
-            onClick={(e) => {
-              e.stopPropagation(); // Impede que o clique no 'x' também ative o toggle
-              onDelete();
-            }} 
-            className="text-lg text-red-400 hover:text-red-600 leading-none"
-          >
-            &times;
-          </button>
+          <div className="flex items-center space-x-3 flex-shrink-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit();
+              }}
+              className="text-gray-400 hover:text-purple-600"
+            >
+              <PencilSquareIcon className="h-5 w-5" />
+            </button>
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }} 
+              className="text-lg text-red-400 hover:text-red-600 leading-none"
+            >
+              &times;
+            </button>
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-gray-600">
           <span><strong>Tipo:</strong> {skill.type || '-'}</span>
@@ -29,11 +39,8 @@ function SkillCard({ skill, onDelete, isExpanded, onToggle }) {
         </div>
       </button>
 
-      {/* Seção da Descrição com Animação */}
       <div 
-        className={`transition-all duration-300 ease-in-out ${
-          isExpanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
-        }`}
+        className={`transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}
       >
         <div className="px-4 pb-4">
           <p className="text-sm text-gray-800 pt-2 border-t">{skill.effect}</p>
