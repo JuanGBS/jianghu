@@ -1,10 +1,11 @@
 import React from 'react';
-import { UserCircleIcon, SparklesIcon } from '@heroicons/react/24/solid';
+import { UserCircleIcon, SparklesIcon, ArrowTrendingUpIcon } from '@heroicons/react/24/solid';
 
 function SheetNavigation({ activeTab, setActiveTab }) {
   const tabs = [
     { id: 'sheet', label: 'Ficha', icon: UserCircleIcon },
-    { id: 'skills', label: 'Técnicas', icon: SparklesIcon },
+    { id: 'techniques', label: 'Técnicas', icon: SparklesIcon },
+    { id: 'progression', label: 'Progressão', icon: ArrowTrendingUpIcon },
   ];
 
   return (

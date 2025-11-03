@@ -4,8 +4,8 @@ import { ATTRIBUTE_TRANSLATIONS } from '../data/translations';
 
 const initialSkillState = { name: '', type: '', cost: '', action: '', attribute: '', requirements: '', effect: '' };
 
-function SkillCreatorForm({ onSave, onCancel, initialData }) {
-  const [skill, setSkill] = useState(initialSkillState);
+function TechniqueCreatorForm({ onSave, onCancel, initialData }) {
+  const [technique, setSkill] = useState(initialSkillState);
   const isEditing = Boolean(initialData);
 
   useEffect(() => {
@@ -27,7 +27,7 @@ function SkillCreatorForm({ onSave, onCancel, initialData }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onSave(skill);
+    onSave(technique);
   };
 
   const inputStyle = "w-full p-2 border bg-gray-50 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-400";
@@ -40,7 +40,7 @@ function SkillCreatorForm({ onSave, onCancel, initialData }) {
       
       <div>
         <label htmlFor="name" className="text-sm font-semibold text-gray-600 mb-1 block">Nome da Tecnica</label>
-        <input id="name" name="name" value={skill.name} onChange={handleChange} className={inputStyle} required />
+        <input id="name" name="name" value={technique.name} onChange={handleChange} className={inputStyle} required />
       </div>
       
       <div>
@@ -48,7 +48,7 @@ function SkillCreatorForm({ onSave, onCancel, initialData }) {
         <div className="flex space-x-2">
           {SKILL_TYPES.map((type) => {
             const Icon = type.icon;
-            const isSelected = skill.type === type.id;
+            const isSelected = technique.type === type.id;
             return (
               <button 
                 type="button" 
@@ -69,18 +69,18 @@ function SkillCreatorForm({ onSave, onCancel, initialData }) {
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label htmlFor="cost" className="text-sm font-semibold text-gray-600 mb-1 block">Custo (Ex: 2 PC)</label>
-          <input id="cost" name="cost" value={skill.cost} onChange={handleChange} className={inputStyle} />
+          <input id="cost" name="cost" value={technique.cost} onChange={handleChange} className={inputStyle} />
         </div>
         <div>
           <label htmlFor="action" className="text-sm font-semibold text-gray-600 mb-1 block">Ação</label>
-          <select id="action" name="action" value={skill.action} onChange={handleChange} className={inputStyle}>
+          <select id="action" name="action" value={technique.action} onChange={handleChange} className={inputStyle}>
             <option value="" disabled>Selecione...</option>
             {ACTION_TYPES.map(action => <option key={action} value={action}>{action}</option>)}
           </select>
         </div>
         <div>
           <label htmlFor="attribute" className="text-sm font-semibold text-gray-600 mb-1 block">Atributo Chave</label>
-          <select id="attribute" name="attribute" value={skill.attribute} onChange={handleChange} className={inputStyle}>
+          <select id="attribute" name="attribute" value={technique.attribute} onChange={handleChange} className={inputStyle}>
             <option value="" disabled>Selecione...</option>
             {Object.values(ATTRIBUTE_TRANSLATIONS).map(attr => <option key={attr} value={attr}>{attr}</option>)}
           </select>
@@ -89,12 +89,12 @@ function SkillCreatorForm({ onSave, onCancel, initialData }) {
       
       <div>
         <label htmlFor="requirements" className="text-sm font-semibold text-gray-600 mb-1 block">Requisitos (Ex: Compreensão Rasa)</label>
-        <input id="requirements" name="requirements" value={skill.requirements} onChange={handleChange} className={inputStyle} />
+        <input id="requirements" name="requirements" value={technique.requirements} onChange={handleChange} className={inputStyle} />
       </div>
 
       <div>
         <label htmlFor="effect" className="text-sm font-semibold text-gray-600 mb-1 block">Descrição do Efeito</label>
-        <textarea id="effect" name="effect" value={skill.effect} onChange={handleChange} className={`${inputStyle} min-h-[80px]`} required></textarea>
+        <textarea id="effect" name="effect" value={technique.effect} onChange={handleChange} className={`${inputStyle} min-h-[80px]`} required></textarea>
       </div>
       
       <div className="flex justify-end space-x-3 pt-2">
@@ -107,4 +107,4 @@ function SkillCreatorForm({ onSave, onCancel, initialData }) {
   );
 }
 
-export default SkillCreatorForm;
+export default TechniqueCreatorForm;

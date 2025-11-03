@@ -11,10 +11,12 @@ const initialCharacter = {
   name: 'Herói Sem Nome',
   clan: null,
   fightingStyle: '',
+  bodyRefinementLevel: 0,
+  cultivationLevel: 0,
   distributedPoints: { vigor: 0, agility: 0, discipline: 0, comprehension: 0, presence: 0 },
   clanBonus: { vigor: 0, agility: 0, discipline: 0, comprehension: 0, presence: 0 },
   baseHp: 0,
-  proficientSkills: [],
+  proficientPericias: [],
 };
 
 function SheetManager({ onSave }) {
@@ -36,7 +38,7 @@ function SheetManager({ onSave }) {
         presence: clanData.attributeBonus.presence || 0,
       },
       baseHp: clanData.baseHp,
-      proficientSkills: clanData.skills,
+      proficientPericias: clanData.proficientPericias,
     });
   };
 
@@ -70,7 +72,7 @@ function SheetManager({ onSave }) {
         currentHp: calculatedStats.maxHp,
         currentChi: calculatedStats.maxChi,
       },
-      proficientSkills: character.proficientSkills,
+      proficientPericias: character.proficientPericias,
     };
     onSave(finalCharacterData);
   };

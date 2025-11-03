@@ -1,7 +1,7 @@
 import React from 'react';
 import { PencilSquareIcon } from '@heroicons/react/24/solid';
 
-function SkillCard({ skill, onDelete, onEdit, isExpanded, onToggle }) {
+function TechniqueCard({ skill, onDelete, onEdit, isExpanded, onToggle }) {
   return (
     <div className="bg-white rounded-xl shadow-md overflow-hidden">
       <button 
@@ -50,4 +50,4 @@ function SkillCard({ skill, onDelete, onEdit, isExpanded, onToggle }) {
   );
 }
 
-export default SkillCard;
+export default TechniqueCard;

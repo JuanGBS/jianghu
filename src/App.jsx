@@ -15,9 +15,9 @@ function App() {
   }, []);
 
   const handleSaveCharacter = (characterData) => {
-    const characterWithSkills = { ...characterData, skills: [] };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(characterWithSkills));
-    setCharacter(characterWithSkills);
+    const characterWithTechniques = { ...characterData, techniques: [] };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(characterWithTechniques));
+    setCharacter(characterWithTechniques);
   };
 
   const handleDeleteCharacter = () => {

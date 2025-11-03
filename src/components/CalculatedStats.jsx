@@ -1,69 +1,26 @@
-import React, { useState, useEffect, useRef } from 'react';
+// src/components/CalculatedStats.jsx
+import React from 'react';
 
-function EditableStat({ label, currentValue, maxValue, onSave, colorClass }) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [value, setValue] = useState(currentValue);
-  const inputRef = useRef(null);
-
-  useEffect(() => {
-    if (isEditing) {
-      setValue(currentValue);
-      inputRef.current?.focus();
-    }
-  }, [isEditing, currentValue]);
-
-  const handleSave = () => {
-    let finalValue = currentValue;
-    const inputValue = String(value);
-
-    if (inputValue.startsWith('+') || inputValue.startsWith('-')) {
-      const amount = parseInt(inputValue.substring(1), 10);
-      if (!isNaN(amount)) {
-        finalValue = inputValue.startsWith('+') ? currentValue + amount : currentValue - amount;
-      }
-    } else {
-      const absoluteValue = parseInt(inputValue, 10);
-      if (!isNaN(absoluteValue)) {
-        finalValue = absoluteValue;
-      }
-    }
-
-    const validatedValue = Math.max(0, finalValue);
-    onSave(validatedValue);
-    setIsEditing(false);
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      handleSave();
-    } else if (e.key === 'Escape') {
-      setValue(currentValue);
-      setIsEditing(false);
-    }
-  };
-
-  if (isEditing) {
-    return (
-      <input
-        ref={inputRef}
-        type="text"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={handleSave}
-        onKeyDown={handleKeyDown}
-        className={`w-full text-3xl font-bold text-center bg-transparent focus:outline-none ${colorClass}`}
-      />
-    );
-  }
-
+function CalculatedStats({ stats }) {
   return (
-    <button onClick={() => setIsEditing(true)} className="w-full text-center focus:outline-none">
-      <span className="block text-sm text-gray-500">{label}</span>
-      <span className={`block text-3xl font-bold ${colorClass}`}>
-        {currentValue}{maxValue ? `/${maxValue}` : ''}
-      </span>
-    </button>
+    <div>
+      <h3 className="text-xl font-semibold text-brand-text mb-3">Estatísticas Iniciais</h3>
+      <div className="flex justify-around items-center text-center">
+        <div>
+          <span className="block text-sm text-gray-500">PV</span>
+          <span className="block text-3xl font-bold text-green-600">{stats.maxHp}</span>
+        </div>
+        <div>
+          <span className="block text-sm text-gray-500">Chi</span>
+          <span className="block text-3xl font-bold text-blue-500">{stats.maxChi}</span>
+        </div>
+        <div>
+          <span className="block text-sm text-gray-500">CA</span>
+          <span className="block text-3xl font-bold text-red-600">{stats.armorClass}</span>
+        </div>
+      </div>
+    </div>
   );
 }
 
-export default EditableStat;
+export default CalculatedStats;

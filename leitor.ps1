@@ -6,9 +6,6 @@ $reportPath = Join-Path -Path $scriptRoot -ChildPath "relatorio_codigo_completo.
 $fileTypes = @("*.jsx", "*.js", "*.css")
 
 $header = @"
-======================================================================
-           DOSSIÊ DE CÓDIGO - PROJETO TALES OF JIANGHU
-======================================================================
 Data de Geração: $(Get-Date)
 Este arquivo contém uma cópia completa de todo o código-fonte
 da pasta /src do projeto.
