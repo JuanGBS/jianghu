@@ -2,27 +2,27 @@ import React, { useState, useEffect } from 'react';
 import { SKILL_TYPES, ACTION_TYPES } from '../data/gameData';
 import { ATTRIBUTE_TRANSLATIONS } from '../data/translations';
 
-const initialSkillState = { name: '', type: '', cost: '', action: '', attribute: '', requirements: '', effect: '' };
+const initialTechniqueState = { name: '', type: '', cost: '', action: '', attribute: '', requirements: '', effect: '' };
 
 function TechniqueCreatorForm({ onSave, onCancel, initialData }) {
-  const [technique, setSkill] = useState(initialSkillState);
+  const [technique, setTechnique] = useState(initialTechniqueState);
   const isEditing = Boolean(initialData);
 
   useEffect(() => {
     if (initialData) {
-      setSkill(initialData);
+      setTechnique(initialData);
     } else {
-      setSkill(initialSkillState);
+      setTechnique(initialTechniqueState);
     }
   }, [initialData]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setSkill(prev => ({ ...prev, [name]: value }));
+    setTechnique(prev => ({ ...prev, [name]: value }));
   };
 
   const handleTypeSelect = (typeId) => {
-    setSkill(prev => ({ ...prev, type: prev.type === typeId ? '' : typeId }));
+    setTechnique(prev => ({ ...prev, type: prev.type === typeId ? '' : typeId }));
   };
 
   const handleSubmit = (e) => {
@@ -35,11 +35,11 @@ function TechniqueCreatorForm({ onSave, onCancel, initialData }) {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <h4 className="text-xl font-bold text-brand-text text-center">
-        {isEditing ? 'Editar Tecnica' : 'Nova Tecnica'}
+        {isEditing ? 'Editar Técnica' : 'Nova Técnica'}
       </h4>
       
       <div>
-        <label htmlFor="name" className="text-sm font-semibold text-gray-600 mb-1 block">Nome da Tecnica</label>
+        <label htmlFor="name" className="text-sm font-semibold text-gray-600 mb-1 block">Nome da Técnica</label>
         <input id="name" name="name" value={technique.name} onChange={handleChange} className={inputStyle} required />
       </div>
       
@@ -100,7 +100,7 @@ function TechniqueCreatorForm({ onSave, onCancel, initialData }) {
       <div className="flex justify-end space-x-3 pt-2">
         <button type="button" onClick={onCancel} className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-md font-semibold">Cancelar</button>
         <button type="submit" className="px-6 py-2 bg-brand-primary text-brand-text font-bold rounded-md hover:brightness-105 shadow-sm">
-          {isEditing ? 'Salvar Alterações' : 'Salvar Tecnica'}
+          {isEditing ? 'Salvar Alterações' : 'Salvar Técnica'}
         </button>
       </div>
     </form>

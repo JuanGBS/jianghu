@@ -8,6 +8,6 @@ export default defineConfig({
     host: true, 
     allowedHosts: ['.ngrok-free.app', '.ngrok-free.dev'] 
     // https://discomfortingly-increasing-kenya.ngrok-free.dev/
-    // ngrok http 5173
+    // ngrok http 5163 --pooling-enabled 
   }
 })
