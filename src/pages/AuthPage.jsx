@@ -1,35 +1,28 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import * as apiService from '../services/apiService';
 
 function AuthPage() {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  const { login } = useAuth();
+  const { signIn, signUp } = useAuth();
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
     setMessage('');
-    try {
-      await login(username, password);
-    } catch (err) {
-      setError('Falha no login. Verifique seu usuário e senha.');
-    }
+    const { error } = await signIn({ email, password });
+    if (error) setError(error.message);
   };
   
   const handleRegister = async (e) => {
     e.preventDefault();
     setError('');
     setMessage('');
-    try {
-      await apiService.registerUser(username, password);
-      setMessage('Usuário registrado com sucesso! Você já pode fazer o login.');
-    } catch (err) {
-      setError('Erro ao registrar. O usuário pode já existir.');
-    }
+    const { error } = await signUp({ email, password });
+    if (error) setError(error.message);
+    else setMessage('Registro bem-sucedido! Verifique seu e-mail para confirmação.');
   };
 
   return (
@@ -38,12 +31,12 @@ function AuthPage() {
       <div className="w-full max-w-md p-8 bg-gray-50 rounded-2xl shadow-lg border">
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label htmlFor="username" className="text-lg font-semibold text-brand-text mb-2 block">Usuário</label>
+            <label htmlFor="email" className="text-lg font-semibold text-brand-text mb-2 block">Email</label>
             <input 
-              id="username" 
-              type="text" 
-              value={username} 
-              onChange={(e) => setUsername(e.target.value)}
+              id="email" 
+              type="email" 
+              value={email} 
+              onChange={(e) => setEmail(e.target.value)}
               className="w-full bg-white border-2 border-gray-300 rounded-lg py-3 px-4 text-lg focus:outline-none focus:border-purple-400"
               required
             />

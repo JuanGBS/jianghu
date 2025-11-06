@@ -11,6 +11,8 @@ import EditableStat from './EditableStat';
 import Modal from './Modal';
 import TechniqueCreatorForm from './TechniqueCreatorForm';
 import ConfirmationModal from './ConfirmationModal';
+import AttributeRollModal from './AttributeRollModal';
+import { ArrowPathIcon } from '@heroicons/react/24/outline';
 
 function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotification }) {
   const clan = CLANS_DATA[character.clanId];
@@ -18,9 +20,11 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
   const [editingTechnique, setEditingTechnique] = useState(null);
   const [isCreating, setIsCreating] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isStatusCardFlipped, setIsStatusCardFlipped] = useState(false);
+  const [rollModalData, setRollModalData] = useState(null);
   
   const isFormModalOpen = isCreating || editingTechnique !== null;
-  const anyModalIsOpen = isFormModalOpen || isDeleteModalOpen;
+  const anyModalIsOpen = isFormModalOpen || isDeleteModalOpen || rollModalData !== null;
 
   const handleStatChange = (statKey, newValue) => {
     const validatedValue = Math.max(0, newValue);
@@ -65,6 +69,11 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
     setIsDeleteModalOpen(false);
   };
   
+  const openRollModal = (attributeKey, attributeValue) => {
+    setRollModalData({ key: attributeKey, value: attributeValue });
+  };
+  const closeRollModal = () => setRollModalData(null);
+
   const baseMaxHp = character.stats.maxHp;
   const refinementMultiplier = BODY_REFINEMENT_LEVELS.find(l => l.id === (character.bodyRefinementLevel || 0))?.multiplier || 1;
   const displayMaxHp = Math.floor(baseMaxHp * refinementMultiplier);
@@ -123,7 +132,13 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
             <div className="space-y-2 mt-3">
               {Object.entries(character.attributes).map(([key, value]) => (
                 <div key={key} className="relative group">
-                  <div className="flex justify-between items-center bg-gray-100 p-3 rounded-lg"><span className="font-bold text-gray-700">{ATTRIBUTE_TRANSLATIONS[key]}</span><span className="text-2xl font-bold text-purple-700">{value}</span></div>
+                  <button 
+                    onClick={() => openRollModal(key, value)}
+                    className="w-full flex justify-between items-center bg-gray-100 p-3 rounded-lg hover:bg-gray-200 transition-colors"
+                  >
+                    <span className="font-bold text-gray-700">{ATTRIBUTE_TRANSLATIONS[key]}</span>
+                    <span className="text-2xl font-bold text-purple-700">{value}</span>
+                  </button>
                   <div className="absolute left-full top-0 ml-4 w-64 bg-white p-4 rounded-lg shadow-xl border z-10 opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100 transition-all duration-200 pointer-events-none group-hover:pointer-events-auto">
                     <h5 className="font-bold text-brand-text border-b pb-2 mb-2">Perícias de {ATTRIBUTE_TRANSLATIONS[key]}</h5>
                     <div className="space-y-1 text-sm">
@@ -154,6 +169,13 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
       </Modal>
 
       <ConfirmationModal isOpen={isDeleteModalOpen} onClose={() => setIsDeleteModalOpen(false)} onConfirm={handleConfirmDelete} title="Apagar Personagem?" message="Esta ação é permanente e não pode ser desfeita. Você tem certeza que deseja apagar esta ficha?" />
+    
+      <AttributeRollModal 
+        isOpen={rollModalData !== null}
+        onClose={closeRollModal}
+        attributeName={rollModalData ? ATTRIBUTE_TRANSLATIONS[rollModalData.key] : ''}
+        attributeValue={rollModalData ? rollModalData.value : 0}
+      />
     </div>
   );
 }

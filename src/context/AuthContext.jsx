@@ -1,38 +1,40 @@
-import React, { createContext, useState, useContext, useEffect, useCallback } from 'react'; // 1. Importa o useCallback
-import * as apiService from '../services/apiService';
+import React, { createContext, useState, useContext, useEffect } from 'react';
+import { supabase } from '../services/supabaseClient';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [sessionId, setSessionId] = useState(() => localStorage.getItem('sessionId'));
+  const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    setIsLoading(false);
-  }, []);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setIsLoading(false);
+    });
 
-  const login = async (username, password) => {
-    const response = await apiService.loginUser(username, password);
-    const newSessionId = response.data.sessionId;
-    localStorage.setItem('sessionId', newSessionId);
-    setSessionId(newSessionId);
-    return newSessionId;
-  };
-  const logout = useCallback(() => {
-    localStorage.removeItem('sessionId');
-    setSessionId(null);
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setUser(session?.user ?? null);
+      }
+    );
+
+    return () => {
+      authListener?.subscription.unsubscribe();
+    };
   }, []);
 
   const authValue = {
-    sessionId,
+    user,
     isLoading,
-    login,
-    logout,
+    signUp: (data) => supabase.auth.signUp(data),
+    signIn: (data) => supabase.auth.signInWithPassword(data),
+    signOut: () => supabase.auth.signOut(),
   };
 
   return (
     <AuthContext.Provider value={authValue}>
-      {children}
+      {!isLoading && children}
     </AuthContext.Provider>
   );
 }
