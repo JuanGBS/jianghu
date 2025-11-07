@@ -1,14 +1,12 @@
 import React from 'react';
-// ÍCONES ATUALIZADOS E MAIS TEMÁTICOS
 import { 
-  ShieldCheckIcon, // Para Wáng (Resiliência, Proteção)
-  BoltIcon,        // Para Míng (Trovão, Velocidade)
-  HeartIcon,       // Para Sūn (Tenacidade, Vitalidade)
-  AcademicCapIcon, // Para Zhū (Sabedoria, Estratégia)
+  ShieldCheckIcon,
+  BoltIcon,
+  HeartIcon,
+  AcademicCapIcon,
   CheckBadgeIcon 
 } from '@heroicons/react/24/solid';
 
-// MAPEAMENTO DE ÍCONES ATUALIZADO
 const clanIcons = {
   wang: ShieldCheckIcon,
   ming: BoltIcon,

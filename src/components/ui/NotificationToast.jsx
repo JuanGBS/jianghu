@@ -5,14 +5,12 @@ function NotificationToast({ message, type, onClose }) {
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    // Animação de entrada
     const enterTimer = setTimeout(() => setIsVisible(true), 10);
 
-    // Animação de saída e fechamento
     const exitTimer = setTimeout(() => {
       setIsVisible(false);
-      setTimeout(onClose, 300); // Espera a animação de saída terminar
-    }, 3000); // A notificação fica visível por 3 segundos
+      setTimeout(onClose, 300); 
+    }, 3000); 
 
     return () => {
       clearTimeout(enterTimer);

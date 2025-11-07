@@ -1,7 +1,6 @@
 import React from 'react';
 import { ChevronLeftIcon, ChevronRightIcon, TrashIcon } from '@heroicons/react/24/solid';
 
-// Adicionamos a nova prop 'onClearHistory'
 function RollHistoryDrawer({ history, isOpen, onToggle, onClearHistory }) {
   const drawerWidth = 320;
 
@@ -24,10 +23,8 @@ function RollHistoryDrawer({ history, isOpen, onToggle, onClearHistory }) {
         className="bg-white h-[90vh] p-6 shadow-2xl flex flex-col rounded-l-2xl"
         style={{ width: `${drawerWidth}px` }}
       >
-        {/* --- INÍCIO DA ALTERAÇÃO --- */}
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-xl font-semibold text-brand-text">Histórico de Rolagens</h3>
-          {/* O botão só aparece se o histórico não estiver vazio */}
           {history.length > 0 && (
             <button 
               onClick={onClearHistory} 
@@ -39,7 +36,6 @@ function RollHistoryDrawer({ history, isOpen, onToggle, onClearHistory }) {
             </button>
           )}
         </div>
-        {/* --- FIM DA ALTERAÇÃO --- */}
 
         <div className="flex-grow overflow-y-auto space-y-3 pr-2">
           {history.length > 0 ? (

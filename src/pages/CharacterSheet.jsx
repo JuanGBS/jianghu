@@ -12,9 +12,9 @@ import Modal from '../components/ui/Modal';
 import TechniqueCreatorForm from '../components/character-sheet/TechniqueCreatorForm';
 import ConfirmationModal from '../components/ui/ConfirmationModal';
 import AttributeRollModal from '../components/character-sheet/AttributeRollModal';
-import { ArrowPathIcon } from '@heroicons/react/24/outline';
+import { PhotoIcon, StarIcon } from '@heroicons/react/24/solid';
 
-function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotification, signOut, addRollToHistory }) {
+function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotification, addRollToHistory, onOpenImageTray }) {
   const clan = CLANS_DATA[character.clanId];
   const [activeTab, setActiveTab] = useState('sheet');
   const [editingTechnique, setEditingTechnique] = useState(null);
@@ -38,21 +38,16 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
     } else {
       updatedTechniques = [...(character.techniques || []), techniqueData];
     }
-    const updatedCharacter = { ...character, techniques: updatedTechniques };
-    onUpdateCharacter(updatedCharacter);
+    onUpdateCharacter({ ...character, techniques: updatedTechniques });
   };
   
   const handleTechniqueDelete = (indexToDelete) => {
     const updatedTechniques = (character.techniques || []).filter((_, index) => index !== indexToDelete);
-    const updatedCharacter = { ...character, techniques: updatedTechniques };
-    onUpdateCharacter(updatedCharacter);
+    onUpdateCharacter({ ...character, techniques: updatedTechniques });
   };
 
   const handleProgressionChange = (updates) => {
     const newCharacterState = { ...character, ...updates };
-    if (newCharacterState.bodyRefinementLevel >= BODY_REFINEMENT_LEVELS.length) return;
-    if (newCharacterState.cultivationStage >= CULTIVATION_STAGES.length) return;
-    if (newCharacterState.masteryLevel >= MASTERY_LEVELS.length) return;
     onUpdateCharacter(newCharacterState);
   };
 
@@ -68,9 +63,10 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
     setIsDeleteModalOpen(false);
   };
   
-  const openRollModal = (attributeKey, attributeValue) => {
-    setRollModalData({ key: attributeKey, value: attributeValue });
+  const openRollModal = (attributeKey, attributeValue, isProficient) => {
+    setRollModalData({ key: attributeKey, value: attributeValue, proficient: isProficient });
   };
+  
   const closeRollModal = () => setRollModalData(null);
 
   const baseMaxHp = character.stats.maxHp;
@@ -123,38 +119,62 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
         Tales of Jianghu
       </h1>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-grow">
-        <div className="lg:col-span-1 bg-white p-8 rounded-2xl shadow-lg space-y-4 w-full self-start">
+        <div className="lg-col-span-1 bg-white p-8 rounded-2xl shadow-lg space-y-4 w-full self-start">
           <div><h2 className="text-4xl font-bold text-brand-text">{character.name}</h2><p className="text-lg text-gray-500">{clan.name}</p></div>
           <hr />
           <div>
             <h3 className="text-xl font-semibold text-brand-text">Atributos Finais</h3>
             <div className="space-y-2 mt-3">
-              {Object.entries(character.attributes).map(([key, value]) => (
-                <div key={key} className="relative group">
-                  <button 
-                    onClick={() => openRollModal(key, value)}
-                    className="w-full flex justify-between items-center bg-gray-100 p-3 rounded-lg hover:bg-gray-200 transition-colors"
-                  >
-                    <span className="font-bold text-gray-700">{ATTRIBUTE_TRANSLATIONS[key]}</span>
-                    <span className="text-2xl font-bold text-purple-700">{value}</span>
-                  </button>
-                  <div className="absolute left-full top-0 ml-4 w-64 bg-white p-4 rounded-lg shadow-xl border z-10 opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100 transition-all duration-200 pointer-events-none group-hover:pointer-events-auto">
-                    <h5 className="font-bold text-brand-text border-b pb-2 mb-2">Perícias de {ATTRIBUTE_TRANSLATIONS[key]}</h5>
-                    <div className="space-y-1 text-sm">
-                      {(ATTRIBUTE_PERICIAS[key] || []).map(periciaName => (<div key={periciaName} className="flex justify-between"><span className="text-gray-600">{periciaName}</span><span className="font-bold text-purple-700">+{value}</span></div>))}
+              {Object.entries(character.attributes).map(([key, value]) => {
+                const isProficient = character.proficientAttribute === key;
+                const periciaBonus = isProficient ? value * 2 : value;
+
+                return (
+                  <div key={key} className="relative group">
+                    <button
+                      onClick={() => openRollModal(key, value, isProficient)}
+                      className={`w-full flex justify-between items-center p-3 rounded-lg transition-colors ${
+                        isProficient ? 'bg-purple-100 hover:bg-purple-200' : 'bg-gray-100 hover:bg-gray-200'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2">
+                        {isProficient && <StarIcon className="h-5 w-5 text-yellow-500" />}
+                        <span className="font-bold text-gray-700">{ATTRIBUTE_TRANSLATIONS[key]}</span>
+                      </div>
+                      <span className="text-2xl font-bold text-purple-700">{value}</span>
+                    </button>
+                    <div className="absolute left-full top-0 ml-4 w-64 bg-white p-4 rounded-lg shadow-xl border z-10 opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100 transition-all duration-200 pointer-events-none group-hover:pointer-events-auto">
+                      <h5 className="font-bold text-brand-text border-b pb-2 mb-2">Perícias de {ATTRIBUTE_TRANSLATIONS[key]}</h5>
+                      <div className="space-y-1 text-sm">
+                        {(ATTRIBUTE_PERICIAS[key] || []).map(periciaName => (
+                          <div key={periciaName} className="flex justify-between">
+                            <span className="text-gray-600">{periciaName}</span>
+                            <span className="font-bold text-purple-700">+{periciaBonus}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
-        <div className="lg:col-span-1 flex justify-center -mx-8 hidden lg:flex self-end">
-          <img 
-            src={characterArt} 
-            alt="Arte do Personagem" 
-            className="max-h-[75vh] object-contain [mask-image:linear-gradient(to_bottom,black_80%,transparent_100%)]" 
-          />
+        <div className="lg:col-span-1 flex items-center justify-center self-start">
+          <div className="relative group w-full max-w-sm mx-auto aspect-[3/4] bg-gray-100 rounded-2xl shadow-lg border-2 border-gray-200 overflow-hidden">
+            <img 
+              src={character.imageUrl || characterArt} 
+              alt={`Arte de ${character.name}`} 
+              className="w-full h-full object-cover object-center"
+            />
+            <button
+              onClick={onOpenImageTray}
+              className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300 cursor-pointer"
+            >
+              <PhotoIcon className="h-12 w-12 mb-2" />
+              <span className="font-semibold">Abrir Galeria</span>
+            </button>
+          </div>
         </div>
         <div className="lg:col-span-1 w-full self-start">
           <RightColumnContent />
@@ -163,21 +183,19 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
       
       {!anyModalIsOpen && <SheetNavigation activeTab={activeTab} setActiveTab={setActiveTab} />}
 
-      <Modal isOpen={isFormModalOpen} onClose={closeFormModal}>
-        <TechniqueCreatorForm onSave={(techniqueData) => { handleTechniquesUpdate(techniqueData); closeFormModal(); }} onCancel={closeFormModal} initialData={editingTechnique?.technique} />
-      </Modal>
-
-      <ConfirmationModal isOpen={isDeleteModalOpen} onClose={() => setIsDeleteModalOpen(false)} onConfirm={handleConfirmDelete} title="Apagar Personagem?" message="Esta ação é permanente e não pode ser desfeita. Você tem certeza que deseja apagar esta ficha?" />
-    
+      <Modal isOpen={isFormModalOpen} onClose={closeFormModal}><TechniqueCreatorForm onSave={(data) => { handleTechniquesUpdate(data); closeFormModal(); }} onCancel={closeFormModal} initialData={editingTechnique?.technique} /></Modal>
+      <ConfirmationModal isOpen={isDeleteModalOpen} onClose={() => setIsDeleteModalOpen(false)} onConfirm={handleConfirmDelete} title="Apagar Personagem?" message="Esta ação é permanente. Deseja apagar esta ficha?" />
+      
       <AttributeRollModal 
-        isOpen={rollModalData !== null}
-        onClose={closeRollModal}
-        attributeName={rollModalData ? ATTRIBUTE_TRANSLATIONS[rollModalData.key] : ''}
+        isOpen={rollModalData !== null} 
+        onClose={closeRollModal} 
+        attributeName={rollModalData ? ATTRIBUTE_TRANSLATIONS[rollModalData.key] : ''} 
         attributeValue={rollModalData ? rollModalData.value : 0}
+        isProficient={rollModalData ? rollModalData.proficient : false}
         onRollComplete={(result) => addRollToHistory({
-          name: `Teste de ${ATTRIBUTE_TRANSLATIONS[rollModalData.key]}`,
-          roll: result.roll,
-          modifier: rollModalData.value,
+          name: `Teste de ${ATTRIBUTE_TRANSLATIONS[rollModalData.key]}`, 
+          roll: result.roll, 
+          modifier: result.modifier, 
           total: result.total
         })}
       />

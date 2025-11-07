@@ -3,17 +3,15 @@ import Modal from '../ui/Modal';
 
 const getRandomRoll = () => Math.floor(Math.random() * 20) + 1;
 
-function AttributeRollModal({ isOpen, onClose, attributeName, attributeValue, onRollComplete }) {
+function AttributeRollModal({ isOpen, onClose, attributeName, attributeValue, onRollComplete, isProficient }) {
   const [rollResult, setRollResult] = useState(null);
   const [isRolling, setIsRolling] = useState(false);
   const [displayNumber, setDisplayNumber] = useState(null);
 
   useEffect(() => {
     if (!isRolling) return;
-
     const timeouts = [];
     const finalRoll = rollResult.roll;
-
     for (let i = 0; i < 8; i++) {
       timeouts.push(setTimeout(() => setDisplayNumber(getRandomRoll()), i * 50));
     }
@@ -28,20 +26,15 @@ function AttributeRollModal({ isOpen, onClose, attributeName, attributeValue, on
       setIsRolling(false);
       onRollComplete(rollResult); 
     }, 1750));
-
     return () => timeouts.forEach(clearTimeout);
-
   }, [isRolling, rollResult, onRollComplete]);
 
   const handleRoll = (mode = 'normal') => {
     if (isRolling) return;
-
     const roll1 = getRandomRoll();
     const roll2 = getRandomRoll();
-    
     let finalRoll;
     let rolls = [roll1];
-
     if (mode === 'advantage') {
       finalRoll = Math.max(roll1, roll2);
       rolls.push(roll2);
@@ -51,11 +44,13 @@ function AttributeRollModal({ isOpen, onClose, attributeName, attributeValue, on
     } else {
       finalRoll = roll1;
     }
+    const modifier = isProficient ? attributeValue * 2 : attributeValue;
     
     setRollResult({
       roll: finalRoll,
       rolls: rolls,
-      total: finalRoll + attributeValue,
+      total: finalRoll + modifier, 
+      modifier: modifier, 
       mode: mode,
     });
 
@@ -69,11 +64,12 @@ function AttributeRollModal({ isOpen, onClose, attributeName, attributeValue, on
     onClose();
   };
 
+  const displayModifier = isProficient ? attributeValue * 2 : attributeValue;
+
   return (
     <Modal isOpen={isOpen} onClose={handleClose}>
       <div className="text-center">
         <h3 className="text-xl font-bold text-brand-text mb-4">Teste de {attributeName}</h3>
-        
         {rollResult ? (
           <div>
             <div className="my-4 flex justify-center items-baseline space-x-4 text-gray-700 text-lg">
@@ -87,7 +83,7 @@ function AttributeRollModal({ isOpen, onClose, attributeName, attributeValue, on
               </div>
               <span>+</span>
               <div className="flex flex-col items-center">
-                <strong className="text-purple-700 text-4xl">{attributeValue}</strong>
+                <strong className="text-purple-700 text-4xl">{rollResult.modifier}</strong>
                 <span className="text-xs text-gray-500">{attributeName}</span>
               </div>
               <span>=</span>
@@ -112,19 +108,13 @@ function AttributeRollModal({ isOpen, onClose, attributeName, attributeValue, on
               onClick={() => handleRoll('normal')}
               className="w-full px-8 py-3 bg-brand-primary text-brand-text font-bold text-lg rounded-md hover:brightness-105 shadow-lg"
             >
-              Rolar d20
+              Rolar d20 + {displayModifier}
             </button>
             <div className="flex justify-center space-x-4">
-              <button
-                onClick={() => handleRoll('disadvantage')}
-                className="px-6 py-2 bg-red-100 text-red-700 font-semibold rounded-md hover:bg-red-200"
-              >
+              <button onClick={() => handleRoll('disadvantage')} className="px-6 py-2 bg-red-100 text-red-700 font-semibold rounded-md hover:bg-red-200">
                 Desvantagem
               </button>
-              <button
-                onClick={() => handleRoll('advantage')}
-                className="px-6 py-2 bg-green-100 text-green-700 font-semibold rounded-md hover:bg-green-200"
-              >
+              <button onClick={() => handleRoll('advantage')} className="px-6 py-2 bg-green-100 text-green-700 font-semibold rounded-md hover:bg-green-200">
                 Vantagem
               </button>
             </div>

@@ -1,4 +1,3 @@
-// src/components/CalculatedStats.jsx
 import React from 'react';
 
 function CalculatedStats({ stats }) {

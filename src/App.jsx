@@ -6,10 +6,13 @@ import CharacterSheet from './pages/CharacterSheet.jsx';
 import NotificationToast from './components/ui/NotificationToast.jsx';
 import AuthPage from './pages/AuthPage.jsx';
 import RollHistoryDrawer from './components/ui/RollHistoryDrawer.jsx';
+import ImageSelectionTray from './components/ui/ImageSelectionTray.jsx';
+import ProficiencyChoiceModal from './components/character-sheet/ProficiencyChoiceModal.jsx';
 
 const mapToCamelCase = (data) => {
   if (!data) return null;
   return {
+    proficientAttribute: data.proficient_attribute,
     id: data.id,
     userId: data.user_id,
     name: data.name,
@@ -28,15 +31,39 @@ const mapToCamelCase = (data) => {
 };
 
 function AppContent() {
-  const { user, isLoading, signOut } = useAuth();
+  const { user, isLoading } = useAuth();
   const [character, setCharacter] = useState(null);
   const [characterLoading, setCharacterLoading] = useState(true);
   const [notification, setNotification] = useState(null);
-  const [rollHistory, setRollHistory] = useState(() => {
-    const saved = localStorage.getItem('rollHistory');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [rollHistory, setRollHistory] = useState(() => JSON.parse(localStorage.getItem('rollHistory') || '[]'));
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isImageTrayOpen, setIsImageTrayOpen] = useState(false);
+  const [userImages, setUserImages] = useState([]);
+  const [isProficiencyModalOpen, setIsProficiencyModalOpen] = useState(false);
+
+  const fetchUserImages = async () => {
+    if (!user) return;
+    const { data, error } = await supabase.storage
+      .from('character-images')
+      .list(`public/${user.id}`, {
+        limit: 100,
+        sortBy: { column: 'created_at', order: 'desc' },
+      });
+    if (error) {
+      console.error('Erro ao listar imagens:', error);
+      return;
+    }
+    const imagesWithUrls = data.map(file => ({
+      ...file,
+      publicURL: supabase.storage.from('character-images').getPublicUrl(`public/${user.id}/${file.name}`).data.publicUrl,
+    }));
+    setUserImages(imagesWithUrls);
+  };
+
+  const handleOpenImageTray = () => {
+    fetchUserImages();
+    setIsImageTrayOpen(true);
+  };
 
   useEffect(() => {
     localStorage.setItem('rollHistory', JSON.stringify(rollHistory));
@@ -48,25 +75,16 @@ function AppContent() {
     setIsHistoryOpen(true);
   };
 
-  // --- INÍCIO DA ALTERAÇÃO ---
-  // 1. Criamos a função para limpar o estado
   const handleClearHistory = () => {
     setRollHistory([]);
-    // Opcional: mostrar uma notificação de sucesso
     showNotification("Histórico de rolagens limpo!", "success");
   };
-  // --- FIM DA ALTERAÇÃO ---
 
   useEffect(() => {
     if (user) {
       const fetchCharacter = async () => {
         setCharacterLoading(true);
-        const { data, error } = await supabase
-          .from('characters')
-          .select('*')
-          .eq('user_id', user.id)
-          .single();
-
+        const { data, error } = await supabase.from('characters').select('*').eq('user_id', user.id).single();
         if (error && error.code !== 'PGRST116') {
           console.error("Erro ao buscar personagem:", error);
         } else {
@@ -93,9 +111,9 @@ function AppContent() {
           attributes: characterData.attributes,
           stats: characterData.stats,
           proficient_pericias: characterData.proficientPericias,
-          bodyRefinementLevel: characterData.bodyRefinementLevel,
-          cultivationStage: characterData.cultivationStage,
-          masteryLevel: characterData.masteryLevel,
+          body_refinement_level: characterData.bodyRefinementLevel,
+          cultivation_stage: characterData.cultivationStage,
+          mastery_level: characterData.masteryLevel,
           techniques: characterData.techniques,
         }
       ])
@@ -111,20 +129,21 @@ function AppContent() {
   };
 
   const handleDeleteCharacter = async () => {
-    const { error } = await supabase.from('characters').delete().eq('user_id', user.id);
+    if (!character) return;
+    const { error } = await supabase.from('characters').delete().eq('id', character.id);
     if (error) {
       console.error("Erro ao apagar personagem:", error);
       showNotification("Falha ao apagar personagem.", "error");
     } else {
       setCharacter(null);
       setRollHistory([]);
+      showNotification("Personagem apagado com sucesso.", "success");
     }
   };
 
   const handleUpdateCharacter = async (updatedCharacter) => {
     const dataToUpdate = {
-      id: updatedCharacter.id,
-      user_id: updatedCharacter.userId,
+      proficient_attribute: updatedCharacter.proficientAttribute,
       name: updatedCharacter.name,
       clan_id: updatedCharacter.clanId,
       fighting_style: updatedCharacter.fightingStyle,
@@ -138,32 +157,56 @@ function AppContent() {
       proficient_pericias: updatedCharacter.proficientPericias,
     };
 
-    const { data, error } = await supabase
-      .from('characters')
-      .update(dataToUpdate)
-      .eq('id', updatedCharacter.id)
-      .select()
-      .single();
-
+    const { data, error } = await supabase.from('characters').update(dataToUpdate).eq('id', updatedCharacter.id).select().single();
     if (error) {
       console.error("Erro ao atualizar personagem:", error);
       showNotification("Falha ao salvar alterações.", "error");
     } else {
-      setCharacter(mapToCamelCase(data));
+      const updatedData = mapToCamelCase(data);
+      setCharacter(updatedData);
+
+      // Gatilho para abrir o modal de escolha
+      if (updatedData.cultivationStage === 1 && !updatedData.proficientAttribute) {
+        setIsProficiencyModalOpen(true);
+      }
     }
   };
   
+  const handleImageUpload = async (file) => {
+    if (!user) return;
+    showNotification("Enviando imagem...", "success");
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+    const filePath = `public/${user.id}/${fileName}`;
+    const { error: uploadError } = await supabase.storage.from('character-images').upload(filePath, file);
+    if (uploadError) {
+      console.error('Erro no upload:', uploadError);
+      showNotification("Falha ao enviar imagem.", "error");
+      return;
+    }
+    await fetchUserImages();
+    showNotification("Imagem enviada!", "success");
+  };
+
+  const handleSelectImage = async (imageUrl) => {
+    const updatedCharacter = { ...character, imageUrl };
+    await handleUpdateCharacter(updatedCharacter);
+    setIsImageTrayOpen(false);
+  };
+
+  const handleProficiencySelect = async (attribute) => {
+    const updatedCharacter = { ...character, proficientAttribute: attribute };
+    await handleUpdateCharacter(updatedCharacter);
+    setIsProficiencyModalOpen(false);
+    showNotification(`Proficiência em ${attribute.charAt(0).toUpperCase() + attribute.slice(1)} adquirida!`, "success");
+  };
+
   const showNotification = (message, type = 'success') => {
     setNotification({ message, type });
   };
 
-  if (isLoading || characterLoading) {
-    return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
-  }
-
-  if (!user) {
-    return <AuthPage />;
-  }
+  if (isLoading || characterLoading) return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
+  if (!user) return <AuthPage />;
   
   return (
     <div className="relative min-h-screen">
@@ -174,8 +217,8 @@ function AppContent() {
             onDelete={handleDeleteCharacter} 
             onUpdateCharacter={handleUpdateCharacter}
             showNotification={showNotification}
-            signOut={signOut}
             addRollToHistory={addRollToHistory}
+            onOpenImageTray={handleOpenImageTray}
           />
         ) : (
           <SheetManager onSave={handleSaveCharacter} />
@@ -187,26 +230,30 @@ function AppContent() {
           history={rollHistory}
           isOpen={isHistoryOpen}
           onToggle={() => setIsHistoryOpen(!isHistoryOpen)}
-          // --- INÍCIO DA ALTERAÇÃO ---
-          // 2. Passamos a função para o componente filho
           onClearHistory={handleClearHistory}
-          // --- FIM DA ALTERAÇÃO ---
         />
       )}
 
-      {notification && (
-        <NotificationToast message={notification.message} type={notification.type} onClose={() => setNotification(null)} />
-      )}
+      <ImageSelectionTray
+        isOpen={isImageTrayOpen}
+        onClose={() => setIsImageTrayOpen(false)}
+        images={userImages}
+        onSelect={handleSelectImage}
+        onUpload={handleImageUpload}
+      />
+
+      <ProficiencyChoiceModal
+        isOpen={isProficiencyModalOpen}
+        onSelect={handleProficiencySelect}
+      />
+
+      {notification && <NotificationToast message={notification.message} type={notification.type} onClose={() => setNotification(null)} />}
     </div>
   );
 }
 
 function App() {
-  return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
-  );
+  return <AuthProvider><AppContent /></AuthProvider>;
 }
 
 export default App;

@@ -3,7 +3,6 @@ import ConfirmationModal from '../ui/ConfirmationModal';
 import TechniqueCard from './TechniqueCard';
 import { FIGHTING_STYLES } from '../../data/gameData';
 
-// Recebe 'character' em vez de 'techniques'
 function TechniquesPage({ character, onDeleteTechnique, openCreateModal, openEditModal }) {
   const [expandedIndex, setExpandedIndex] = useState(null);
   const [techniqueToDelete, setTechniqueToDelete] = useState(null);
@@ -24,7 +23,6 @@ function TechniquesPage({ character, onDeleteTechnique, openCreateModal, openEdi
   return (
     <div className="bg-white p-6 rounded-2xl shadow-lg flex flex-col max-h-[70vh]">
       
-      {/* SEÇÃO DO ESTILO DE LUTA */}
       <div className="mb-4 flex-shrink-0">
         <h3 className="text-xl font-semibold text-brand-text">Estilo de Luta</h3>
         <div className="bg-gray-100 p-3 rounded-lg mt-2">
@@ -34,7 +32,6 @@ function TechniquesPage({ character, onDeleteTechnique, openCreateModal, openEdi
 
       <hr className="mb-4"/>
 
-      {/* SEÇÃO DAS TÉCNICAS */}
       <div className="flex justify-between items-center mb-4 flex-shrink-0">
         <h3 className="text-xl font-semibold text-brand-text">Técnicas</h3>
         <button onClick={openCreateModal} className="px-4 py-2 bg-brand-primary text-brand-text font-semibold rounded-md text-sm hover:brightness-105">
