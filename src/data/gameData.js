@@ -24,7 +24,7 @@ export const FIGHTING_STYLES = [
 
 export const ATTRIBUTE_PERICIAS = {
   vigor: ['Resistência', 'Atletismo'],
-  agility: ['Acrobacia', 'Furtividade', 'Prestidigitação', 'Reflexo'],
+  agility: ['Acrobacia', 'Furtividade', 'Prestidigitaçao', 'Reflexo'],
   discipline: ['Meditação', 'Força de Vontade', 'Controle do Chi'],
   comprehension: ['Conhecimento do Jianghu', 'Análise Tática', 'Percepção', 'Estratégia'],
   presence: ['Persuasão', 'Liderança', 'Performance', 'Etiqueta Social', 'Intimidação', 'Intuição'],

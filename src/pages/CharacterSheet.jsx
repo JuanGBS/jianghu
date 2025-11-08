@@ -137,7 +137,7 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
                       </div>
                       <span className="text-2xl font-bold text-purple-700">{value}</span>
                     </button>
-                    <div className="absolute left-full top-0 ml-4 w-64 bg-white p-4 rounded-lg shadow-xl border z-10 opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100 transition-all duration-200 pointer-events-none group-hover:pointer-events-auto">
+                    <div className="absolute left-full top-0 ml-4 w-64 bg-white p-4 rounded-lg shadow-xl border z-[60] opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100 transition-all duration-200 pointer-events-none group-hover:pointer-events-auto">
                       <h5 className="font-bold text-brand-text border-b pb-2 mb-2">Perícias de {ATTRIBUTE_TRANSLATIONS[key]}</h5>
                       <div className="space-y-1 text-sm">
                         {(ATTRIBUTE_PERICIAS[key] || []).map(periciaName => (

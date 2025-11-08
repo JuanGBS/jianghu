@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Modal from '../ui/Modal';
+import { CubeIcon } from '@heroicons/react/24/solid'; // Ícone de dado
 
 const getRandomRoll = () => Math.floor(Math.random() * 20) + 1;
 
@@ -12,6 +13,7 @@ function AttributeRollModal({ isOpen, onClose, attributeName, attributeValue, on
     if (!isRolling) return;
     const timeouts = [];
     const finalRoll = rollResult.roll;
+    // Animação de rolagem
     for (let i = 0; i < 8; i++) {
       timeouts.push(setTimeout(() => setDisplayNumber(getRandomRoll()), i * 50));
     }
@@ -24,7 +26,7 @@ function AttributeRollModal({ isOpen, onClose, attributeName, attributeValue, on
     timeouts.push(setTimeout(() => {
       setDisplayNumber(finalRoll);
       setIsRolling(false);
-      onRollComplete(rollResult); 
+      onRollComplete(rollResult);
     }, 1750));
     return () => timeouts.forEach(clearTimeout);
   }, [isRolling, rollResult, onRollComplete]);
@@ -45,12 +47,12 @@ function AttributeRollModal({ isOpen, onClose, attributeName, attributeValue, on
       finalRoll = roll1;
     }
     const modifier = isProficient ? attributeValue * 2 : attributeValue;
-    
+
     setRollResult({
       roll: finalRoll,
       rolls: rolls,
-      total: finalRoll + modifier, 
-      modifier: modifier, 
+      total: finalRoll + modifier,
+      modifier: modifier,
       mode: mode,
     });
 
@@ -63,32 +65,37 @@ function AttributeRollModal({ isOpen, onClose, attributeName, attributeValue, on
     setDisplayNumber(null);
     onClose();
   };
-
+  
+  // A variável 'displayModifier' continua existindo, pois é usada no cálculo do 'modifier'
   const displayModifier = isProficient ? attributeValue * 2 : attributeValue;
 
   return (
     <Modal isOpen={isOpen} onClose={handleClose}>
-      <div className="text-center">
-        <h3 className="text-xl font-bold text-brand-text mb-4">Teste de {attributeName}</h3>
+      <div className="text-center p-4">
         {rollResult ? (
+          // --- TELA DE RESULTADO (PÓS-ROLAGEM) ---
           <div>
-            <div className="my-4 flex justify-center items-baseline space-x-4 text-gray-700 text-lg">
+            <div className="flex flex-col items-center justify-center mb-4">
+              <CubeIcon className="h-10 w-10 text-purple-600 mb-2" />
+              <h3 className="text-2xl font-bold text-brand-text">Teste de {attributeName}</h3>
+            </div>
+            <div className="my-6 flex justify-center items-baseline space-x-4 text-gray-700 text-lg">
               <div className="flex flex-col items-center">
-                <strong className="text-purple-700 text-4xl w-16">
+                <strong className="text-purple-700 text-5xl w-20">
                   {isRolling ? displayNumber : rollResult.roll}
                 </strong>
                 <span className="text-xs text-gray-500">
                   {rollResult.mode !== 'normal' && !isRolling ? `(${rollResult.rolls.join(', ')})` : 'Dado'}
                 </span>
               </div>
-              <span>+</span>
+              <span className="text-3xl font-light text-gray-400">+</span>
               <div className="flex flex-col items-center">
-                <strong className="text-purple-700 text-4xl">{rollResult.modifier}</strong>
+                <strong className="text-purple-700 text-5xl">{rollResult.modifier}</strong>
                 <span className="text-xs text-gray-500">{attributeName}</span>
               </div>
-              <span>=</span>
+              <span className="text-3xl font-light text-gray-400">=</span>
               <div className="flex flex-col items-center">
-                <strong className="text-4xl w-16">
+                <strong className="text-5xl w-20 text-brand-text">
                   {isRolling ? '...' : rollResult.total}
                 </strong>
                 <span className="text-xs text-gray-500">Total</span>
@@ -97,26 +104,48 @@ function AttributeRollModal({ isOpen, onClose, attributeName, attributeValue, on
             <button
               onClick={() => { setRollResult(null); setDisplayNumber(null); }}
               disabled={isRolling}
-              className="mt-6 px-6 py-2 bg-gray-200 text-brand-text font-semibold rounded-md hover:bg-gray-300 disabled:opacity-50"
+              className="mt-6 px-8 py-2 bg-gray-200 text-brand-text font-semibold rounded-lg hover:bg-gray-300 disabled:opacity-50"
             >
-              Voltar
+              Rolar Novamente
             </button>
           </div>
         ) : (
-          <div className="py-8 space-y-4">
-            <button
-              onClick={() => handleRoll('normal')}
-              className="w-full px-8 py-3 bg-brand-primary text-brand-text font-bold text-lg rounded-md hover:brightness-105 shadow-lg"
-            >
-              Rolar d20 + {displayModifier}
-            </button>
-            <div className="flex justify-center space-x-4">
-              <button onClick={() => handleRoll('disadvantage')} className="px-6 py-2 bg-red-100 text-red-700 font-semibold rounded-md hover:bg-red-200">
-                Desvantagem
+          // --- TELA DE OPÇÕES (PRÉ-ROLAGEM) ---
+          <div>
+            <div className="flex flex-col items-center justify-center mb-6">
+              <CubeIcon className="h-12 w-12 text-purple-600 mb-2" />
+              <h3 className="text-2xl font-bold text-brand-text">Teste de {attributeName}</h3>
+              <p className="text-gray-500 mt-1">Role um dado e some seu bônus de +{displayModifier}.</p>
+            </div>
+
+            <div className="space-y-4">
+              <button
+                onClick={() => handleRoll('normal')}
+                className="w-full px-8 py-4 bg-brand-primary text-brand-text font-bold text-xl rounded-xl hover:brightness-105 shadow-lg transition-all transform hover:scale-105"
+              >
+                Rolar D20
               </button>
-              <button onClick={() => handleRoll('advantage')} className="px-6 py-2 bg-green-100 text-green-700 font-semibold rounded-md hover:bg-green-200">
-                Vantagem
-              </button>
+              
+              <div className="flex items-center text-gray-400 pt-2">
+                <div className="flex-grow border-t border-gray-300"></div>
+                <span className="flex-shrink mx-4 text-xs font-semibold">OU ROLAR COM</span>
+                <div className="flex-grow border-t border-gray-300"></div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <button 
+                  onClick={() => handleRoll('disadvantage')} 
+                  className="w-full px-6 py-3 bg-red-100 text-red-800 font-bold rounded-xl hover:bg-red-200 hover:shadow-md transition-all"
+                >
+                  Desvantagem
+                </button>
+                <button 
+                  onClick={() => handleRoll('advantage')} 
+                  className="w-full px-6 py-3 bg-green-100 text-green-800 font-bold rounded-xl hover:bg-green-200 hover:shadow-md transition-all"
+                >
+                  Vantagem
+                </button>
+              </div>
             </div>
           </div>
         )}

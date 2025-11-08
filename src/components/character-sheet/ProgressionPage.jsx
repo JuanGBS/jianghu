@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { BODY_REFINEMENT_LEVELS, CULTIVATION_STAGES, MASTERY_LEVELS } from '../../data/gameData';
 import TrainingOptionsModal from './TrainingOptionsModal'; 
