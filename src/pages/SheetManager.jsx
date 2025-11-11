@@ -8,6 +8,7 @@ import FightingStyleSelector from '../components/character-creation/FightingStyl
 import StyleInfoModal from '../components/character-creation/StyleInfoModal';
 import characterArt from '../assets/character-art.png';
 import InnateBodySelector from '../components/character-creation/InnateBodySelector';
+import InnateBodyInfoModal from '../components/character-creation/InnateBodyInfoModal';
 
 const initialCharacter = {
   name: 'Herói Sem Nome',
@@ -26,17 +27,18 @@ function SheetManager({ onSave }) {
   const [character, setCharacter] = useState(initialCharacter);
   const [calculatedStats, setCalculatedStats] = useState({ maxHp: 0, maxChi: 0, armorClass: 0 });
   const [isStyleInfoModalOpen, setIsStyleInfoModalOpen] = useState(false);
+  
+  const [isBodyInfoModalOpen, setIsBodyInfoModalOpen] = useState(false);
+  const [selectedBodyInfo, setSelectedBodyInfo] = useState(null);
 
   useEffect(() => {
     if (!character.clan) {
-        // Zera os stats se nenhum clã for selecionado
         setCalculatedStats({ maxHp: 0, maxChi: 0, armorClass: 0 });
         return;
     };
 
     const clanData = CLANS_DATA[character.clan];
     const baseHp = clanData.baseHp;
-
     const clanBonus = clanData.attributeBonus || initialClanBonus;
 
     const finalAttributes = Object.keys(character.distributedPoints).reduce((acc, attr) => {
@@ -52,30 +54,28 @@ function SheetManager({ onSave }) {
       maxChi: 5 + finalAttributes.discipline,
       armorClass: 10 + finalAttributes.agility,
     });
-
   }, [character.clan, character.distributedPoints, character.innateBody]);
 
-
   const handleClanSelect = (clanId) => {
-    setCharacter({
-      ...initialCharacter,
-      name: character.name,
-      clan: clanId,
-    });
+    setCharacter({ ...initialCharacter, name: character.name, clan: clanId });
   };
-
   const handlePointsChange = (newPoints) => {
     setCharacter(prev => ({ ...prev, distributedPoints: newPoints }));
   };
-
   const handleStyleChange = (e) => {
     setCharacter(prev => ({ ...prev, fightingStyle: e.target.value }));
   };
-
   const handleBodyChange = (e) => {
     setCharacter(prev => ({ ...prev, innateBody: e.target.value }));
   };
-
+  
+  const handleOpenBodyInfoModal = () => {
+    const bodyData = INNATE_BODIES.find(b => b.id === character.innateBody);
+    if (bodyData) {
+      setSelectedBodyInfo(bodyData);
+      setIsBodyInfoModalOpen(true);
+    }
+  };
 
   const handleFinishCreation = () => {
     const clanData = CLANS_DATA[character.clan];
@@ -104,9 +104,7 @@ function SheetManager({ onSave }) {
     };
     onSave(finalCharacterData);
   };
-
-  // --- CORREÇÃO AQUI ---
-  // Garante que clanBonus nunca seja undefined. Se nenhum clã for selecionado, usa o objeto inicial com zeros.
+  
   const clanBonusForDistributor = character.clan ? CLANS_DATA[character.clan].attributeBonus : initialClanBonus;
 
   return (
@@ -131,7 +129,7 @@ function SheetManager({ onSave }) {
               <CalculatedStats stats={calculatedStats} />
               <AttributeDistributor 
                 points={character.distributedPoints} 
-                clanBonus={clanBonusForDistributor} // Passa a variável segura
+                clanBonus={clanBonusForDistributor}
                 onPointsChange={handlePointsChange} 
               />
             </>
@@ -155,6 +153,7 @@ function SheetManager({ onSave }) {
               <InnateBodySelector 
                 selectedBody={character.innateBody}
                 onBodyChange={handleBodyChange}
+                onInfoClick={handleOpenBodyInfoModal}
               />
               <FightingStyleSelector 
                 selectedStyle={character.fightingStyle} 
@@ -174,9 +173,15 @@ function SheetManager({ onSave }) {
           )}
         </div>
       </div>
+      
       <StyleInfoModal 
         isOpen={isStyleInfoModalOpen}
         onClose={() => setIsStyleInfoModalOpen(false)}
+      />
+      <InnateBodyInfoModal
+        isOpen={isBodyInfoModalOpen}
+        onClose={() => setIsBodyInfoModalOpen(false)}
+        body={selectedBodyInfo}
       />
     </div>
   );
