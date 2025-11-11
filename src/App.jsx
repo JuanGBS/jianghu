@@ -20,6 +20,7 @@ const mapToCamelCase = (data) => {
     name: data.name,
     clanId: data.clan_id,
     fightingStyle: data.fighting_style,
+    innateBodyId: data.innate_body_id,
     imageUrl: data.image_url,
     bodyRefinementLevel: data.body_refinement_level,
     cultivationStage: data.cultivation_stage,
@@ -110,6 +111,7 @@ function AppContent() {
           name: characterData.name,
           clan_id: characterData.clanId,
           fighting_style: characterData.fightingStyle,
+          innate_body_id: characterData.innateBodyId,
           attributes: characterData.attributes,
           stats: characterData.stats,
           proficient_pericias: characterData.proficientPericias,
@@ -148,6 +150,7 @@ function AppContent() {
       name: updatedCharacter.name,
       clan_id: updatedCharacter.clanId,
       fighting_style: updatedCharacter.fightingStyle,
+      innate_body_id: updatedCharacter.innateBodyId,
       image_url: updatedCharacter.imageUrl,
       body_refinement_level: updatedCharacter.bodyRefinementLevel,
       cultivation_stage: updatedCharacter.cultivationStage,
@@ -217,6 +220,7 @@ function AppContent() {
     showNotification(`Proficiência em ${attribute.charAt(0).toUpperCase() + attribute.slice(1)} adquirida!`, "success");
   };
 
+  // --- CÓDIGO CORRIGIDO ---
   const showNotification = (message, type = 'success') => {
     setNotification({ message, type });
   };

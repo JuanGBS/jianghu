@@ -1,45 +1,66 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CLANS_DATA } from '../data/clans';
+import { INNATE_BODIES } from '../data/innateBodies';
 import ClanSelector from '../components/character-creation/ClanSelector';
 import AttributeDistributor from '../components/character-creation/AttributeDistributor';
 import CalculatedStats from '../components/character-creation/CalculatedStats';
 import FightingStyleSelector from '../components/character-creation/FightingStyleSelector';
 import StyleInfoModal from '../components/character-creation/StyleInfoModal';
 import characterArt from '../assets/character-art.png';
+import InnateBodySelector from '../components/character-creation/InnateBodySelector';
 
 const initialCharacter = {
   name: 'Herói Sem Nome',
   clan: null,
   fightingStyle: '',
+  innateBody: 'none',
   bodyRefinementLevel: 0,
   cultivationStage: 0,
   masteryLevel: 0,
   distributedPoints: { vigor: 0, agility: 0, discipline: 0, comprehension: 0, presence: 0 },
-  clanBonus: { vigor: 0, agility: 0, discipline: 0, comprehension: 0, presence: 0 },
-  baseHp: 0,
-  proficientPericias: [],
 };
+
+const initialClanBonus = { vigor: 0, agility: 0, discipline: 0, comprehension: 0, presence: 0 };
 
 function SheetManager({ onSave }) {
   const [character, setCharacter] = useState(initialCharacter);
+  const [calculatedStats, setCalculatedStats] = useState({ maxHp: 0, maxChi: 0, armorClass: 0 });
   const [isStyleInfoModalOpen, setIsStyleInfoModalOpen] = useState(false);
 
+  useEffect(() => {
+    if (!character.clan) {
+        // Zera os stats se nenhum clã for selecionado
+        setCalculatedStats({ maxHp: 0, maxChi: 0, armorClass: 0 });
+        return;
+    };
+
+    const clanData = CLANS_DATA[character.clan];
+    const baseHp = clanData.baseHp;
+
+    const clanBonus = clanData.attributeBonus || initialClanBonus;
+
+    const finalAttributes = Object.keys(character.distributedPoints).reduce((acc, attr) => {
+      acc[attr] = (clanBonus[attr] || 0) + (character.distributedPoints[attr] || 0);
+      return acc;
+    }, {});
+    
+    const selectedInnateBody = INNATE_BODIES.find(body => body.id === character.innateBody);
+    const innateHpBonus = selectedInnateBody?.effects?.stat_bonus?.baseHp || 0;
+
+    setCalculatedStats({
+      maxHp: (baseHp + innateHpBonus) + finalAttributes.vigor,
+      maxChi: 5 + finalAttributes.discipline,
+      armorClass: 10 + finalAttributes.agility,
+    });
+
+  }, [character.clan, character.distributedPoints, character.innateBody]);
+
+
   const handleClanSelect = (clanId) => {
-    const clanData = CLANS_DATA[clanId];
     setCharacter({
       ...initialCharacter,
       name: character.name,
       clan: clanId,
-      distributedPoints: { vigor: 0, agility: 0, discipline: 0, comprehension: 0, presence: 0 },
-      clanBonus: {
-        vigor: clanData.attributeBonus.vigor || 0,
-        agility: clanData.attributeBonus.agility || 0,
-        discipline: clanData.attributeBonus.discipline || 0,
-        comprehension: clanData.attributeBonus.comprehension || 0,
-        presence: clanData.attributeBonus.presence || 0,
-      },
-      baseHp: clanData.baseHp,
-      proficientPericias: clanData.proficientPericias,
     });
   };
 
@@ -51,29 +72,31 @@ function SheetManager({ onSave }) {
     setCharacter(prev => ({ ...prev, fightingStyle: e.target.value }));
   };
 
-  const finalAttributes = Object.keys(character.distributedPoints).reduce((acc, attr) => {
-    acc[attr] = (character.clanBonus[attr] || 0) + (character.distributedPoints[attr] || 0);
-    return acc;
-  }, {});
-
-  const calculatedStats = {
-    maxHp: character.baseHp + finalAttributes.vigor,
-    maxChi: 5 + finalAttributes.discipline,
-    armorClass: 10 + finalAttributes.agility,
+  const handleBodyChange = (e) => {
+    setCharacter(prev => ({ ...prev, innateBody: e.target.value }));
   };
 
+
   const handleFinishCreation = () => {
+    const clanData = CLANS_DATA[character.clan];
+    const clanBonus = clanData.attributeBonus || initialClanBonus;
+    const finalAttributes = Object.keys(character.distributedPoints).reduce((acc, attr) => {
+      acc[attr] = (clanBonus[attr] || 0) + (character.distributedPoints[attr] || 0);
+      return acc;
+    }, {});
+
     const finalCharacterData = {
       name: character.name,
       clanId: character.clan,
       fightingStyle: character.fightingStyle,
+      innateBodyId: character.innateBody,
       attributes: finalAttributes,
       stats: {
         ...calculatedStats,
         currentHp: calculatedStats.maxHp,
         currentChi: calculatedStats.maxChi,
       },
-      proficientPericias: character.proficientPericias,
+      proficientPericias: clanData.proficientPericias,
       bodyRefinementLevel: 0,
       cultivationStage: 0,
       masteryLevel: 0,
@@ -82,12 +105,15 @@ function SheetManager({ onSave }) {
     onSave(finalCharacterData);
   };
 
+  // --- CORREÇÃO AQUI ---
+  // Garante que clanBonus nunca seja undefined. Se nenhum clã for selecionado, usa o objeto inicial com zeros.
+  const clanBonusForDistributor = character.clan ? CLANS_DATA[character.clan].attributeBonus : initialClanBonus;
+
   return (
     <div className="container mx-auto p-4 md:p-8">
       <h1 className="text-6xl font-bold text-center text-brand-primary mb-10" style={{ textShadow: '2px 2px 4px rgba(0,0,0,0.1)' }}>
         Tales of Jianghu
       </h1>
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
         <div className="lg:col-span-1 space-y-8">
           <div>
@@ -103,7 +129,11 @@ function SheetManager({ onSave }) {
           {character.clan ? (
             <>
               <CalculatedStats stats={calculatedStats} />
-              <AttributeDistributor points={character.distributedPoints} clanBonus={character.clanBonus} onPointsChange={handlePointsChange} />
+              <AttributeDistributor 
+                points={character.distributedPoints} 
+                clanBonus={clanBonusForDistributor} // Passa a variável segura
+                onPointsChange={handlePointsChange} 
+              />
             </>
           ) : (
             <div className="text-center text-gray-400 pt-16">
@@ -111,7 +141,6 @@ function SheetManager({ onSave }) {
             </div>
           )}
         </div>
-
         <div className="lg:col-span-1 flex justify-center -mx-8 hidden lg:flex self-end">
           <img 
             src={characterArt} 
@@ -119,12 +148,14 @@ function SheetManager({ onSave }) {
             className="max-h-[75vh] object-contain [mask-image:linear-gradient(to_bottom,black_80%,transparent_100%)]" 
           />
         </div>
-
         <div className="lg:col-span-1 space-y-6 flex flex-col justify-between min-h-[500px]">
           <ClanSelector clans={CLANS_DATA} onClanSelect={handleClanSelect} selectedClan={character.clan} />
-          
           {character.clan && (
-            <div className="mt-auto">
+            <div className="mt-auto space-y-6">
+              <InnateBodySelector 
+                selectedBody={character.innateBody}
+                onBodyChange={handleBodyChange}
+              />
               <FightingStyleSelector 
                 selectedStyle={character.fightingStyle} 
                 onStyleChange={handleStyleChange}
@@ -132,7 +163,6 @@ function SheetManager({ onSave }) {
               />
             </div>
           )}
-
           {character.clan && (
              <button
               onClick={handleFinishCreation}
@@ -144,7 +174,6 @@ function SheetManager({ onSave }) {
           )}
         </div>
       </div>
-      
       <StyleInfoModal 
         isOpen={isStyleInfoModalOpen}
         onClose={() => setIsStyleInfoModalOpen(false)}

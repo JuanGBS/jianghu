@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CLANS_DATA } from '../data/clans';
 import { FIGHTING_STYLES, BODY_REFINEMENT_LEVELS, CULTIVATION_STAGES, MASTERY_LEVELS } from '../data/gameData';
+import { INNATE_BODIES } from '../data/innateBodies';
 import characterArt from '../assets/character-art.png';
 import { ATTRIBUTE_TRANSLATIONS } from '../data/translations';
 import { ATTRIBUTE_PERICIAS } from '../data/gameData';
@@ -16,6 +17,8 @@ import { PhotoIcon, StarIcon } from '@heroicons/react/24/solid';
 
 function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotification, addRollToHistory, onOpenImageTray, onTrain }) {
   const clan = CLANS_DATA[character.clanId];
+  const innateBodyData = INNATE_BODIES.find(body => body.id === character.innateBodyId) || { effects: {} };
+
   const [activeTab, setActiveTab] = useState('sheet');
   const [editingTechnique, setEditingTechnique] = useState(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -24,6 +27,33 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
   
   const isFormModalOpen = isCreating || editingTechnique !== null;
   const anyModalIsOpen = isFormModalOpen || isDeleteModalOpen || rollModalData !== null;
+
+  // --- LÓGICA DE CÁLCULO DINÂMICO TOTALMENTE CORRIGIDA ---
+
+  // 1. CÁLCULO DE PONTOS DE VIDA (PV)
+  // Pega o PV base original diretamente dos dados do clã, ignorando o que está salvo.
+  const initialClanHp = CLANS_DATA[character.clanId]?.baseHp || 0;
+  const innateHpBonus = innateBodyData.effects?.stat_bonus?.baseHp || 0;
+  // Calcula a base de vida real do personagem.
+  const effectiveBaseHp = initialClanHp + innateHpBonus;
+
+  // Calcula o multiplicador de refino, incluindo bônus inatos.
+  const refinementLevel = BODY_REFINEMENT_LEVELS.find(l => l.id === (character.bodyRefinementLevel || 0));
+  const refinementMultiplierBonus = innateBodyData.effects?.body_refinement_multiplier_bonus || 0;
+  const finalRefinementMultiplier = (refinementLevel?.multiplier || 1) + (refinementLevel && refinementLevel.id > 0 ? refinementMultiplierBonus : 0);
+  
+  // Calcula o PV máximo final. Fórmula: (Base Real * Multiplicador) + Vigor
+  const displayMaxHp = Math.floor(effectiveBaseHp * finalRefinementMultiplier) + character.attributes.vigor;
+
+  // 2. CÁLCULO DE PONTOS DE CHI
+  const baseChi = 5 + character.attributes.discipline;
+  const cultivationMultiplier = CULTIVATION_STAGES.find(s => s.id === (character.cultivationStage || 0))?.multiplier || 1;
+  const masteryLevelValue = character.masteryLevel || 0;
+  const masteryFlatBonus = MASTERY_LEVELS.find(l => l.id === masteryLevelValue)?.bonus || 0;
+  const innateChiPerMastery = innateBodyData.effects?.max_chi_per_mastery || 0;
+  
+  const displayMaxChi = Math.floor(baseChi * cultivationMultiplier) + masteryFlatBonus + (masteryLevelValue * innateChiPerMastery);
+
 
   const handleStatChange = (statKey, newValue) => {
     const validatedValue = Math.max(0, newValue);
@@ -64,15 +94,6 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
   
   const closeRollModal = () => setRollModalData(null);
 
-  const baseMaxHp = character.stats.maxHp;
-  const refinementMultiplier = BODY_REFINEMENT_LEVELS.find(l => l.id === (character.bodyRefinementLevel || 0))?.multiplier || 1;
-  const displayMaxHp = Math.floor(baseMaxHp * refinementMultiplier);
-
-  const baseMaxChi = character.stats.maxChi;
-  const cultivationMultiplier = CULTIVATION_STAGES.find(s => s.id === (character.cultivationStage || 0))?.multiplier || 1;
-  const masteryBonus = MASTERY_LEVELS.find(l => l.id === (character.masteryLevel || 0))?.bonus || 0;
-  const displayMaxChi = Math.floor(baseMaxChi * cultivationMultiplier) + masteryBonus;
-
   const RightColumnContent = () => {
     if (activeTab === 'techniques') {
       return (<TechniquesPage character={character} onDeleteTechnique={handleTechniqueDelete} openCreateModal={openCreateModal} openEditModal={openEditModal} />);
@@ -89,6 +110,7 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
               <p className="text-sm text-gray-600 mt-1">{clan.passiveAbility.description}</p>
             </div>
         </div>
+
         <div className="bg-white p-6 rounded-2xl shadow-lg w-full flex flex-col">
           <div>
             <div className="flex justify-between items-center mb-4">
@@ -122,7 +144,7 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
             <div className="space-y-2 mt-3">
               {Object.entries(character.attributes).map(([key, value]) => {
                 const isProficient = character.proficientAttribute === key;
-                const periciaBonus = isProficient ? value * 2 : value;
+                const attributeBonus = isProficient ? value * 2 : value;
                 return (
                   <div key={key} className="relative group">
                     <button
@@ -140,12 +162,18 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
                     <div className="absolute left-full top-0 ml-4 w-64 bg-white p-4 rounded-lg shadow-xl border z-[60] opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100 transition-all duration-200 pointer-events-none group-hover:pointer-events-auto">
                       <h5 className="font-bold text-brand-text border-b pb-2 mb-2">Perícias de {ATTRIBUTE_TRANSLATIONS[key]}</h5>
                       <div className="space-y-1 text-sm">
-                        {(ATTRIBUTE_PERICIAS[key] || []).map(periciaName => (
-                          <div key={periciaName} className="flex justify-between">
-                            <span className="text-gray-600">{periciaName}</span>
-                            <span className="font-bold text-purple-700">+{periciaBonus}</span>
-                          </div>
-                        ))}
+                        {(ATTRIBUTE_PERICIAS[key] || []).map(periciaName => {
+                          const skillBonusFromInnate = innateBodyData.effects?.skill_bonus?.[periciaName] || 0;
+                          const totalBonus = attributeBonus + skillBonusFromInnate;
+                          return (
+                            <div key={periciaName} className="flex justify-between">
+                              <span className="text-gray-600">{periciaName}</span>
+                              <span className="font-bold text-purple-700">
+                                {totalBonus >= 0 ? '+' : ''}{totalBonus}
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>

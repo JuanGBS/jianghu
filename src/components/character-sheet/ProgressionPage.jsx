@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { BODY_REFINEMENT_LEVELS, CULTIVATION_STAGES, MASTERY_LEVELS } from '../../data/gameData';
+// --- 1. IMPORTAR OS DADOS DO CORPO INATO ---
+import { INNATE_BODIES } from '../../data/innateBodies';
 import TrainingOptionsModal from './TrainingOptionsModal'; 
 
 
@@ -7,6 +9,9 @@ function ProgressionPage({ character, onTrain, showNotification }) {
   const [isTrainingModalOpen, setIsTrainingModalOpen] = useState(false);
   
   const displayStyle = "w-full p-3 border bg-gray-100 rounded-md shadow-inner text-gray-800";
+
+  // --- 2. ENCONTRAR OS DADOS DO CORPO INATO DO PERSONAGEM ---
+  const innateBody = INNATE_BODIES.find(body => body.id === character.innateBodyId);
 
   return (
     <>
@@ -36,6 +41,20 @@ function ProgressionPage({ character, onTrain, showNotification }) {
               {MASTERY_LEVELS.find(l => l.id === (character.masteryLevel || 0))?.description}
             </p>
           </div>
+
+          {/* --- 3. ADICIONAR O BLOCO DE EXIBIÇÃO DO CORPO INATO --- */}
+          {innateBody && innateBody.id !== 'none' && (
+            <div>
+              <label className="font-bold text-gray-700 block text-sm mb-1">Corpo Inato</label>
+              <div className={displayStyle}>
+                {innateBody.name}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                {innateBody.description}
+              </p>
+            </div>
+          )}
+
         </div>
         <div className="mt-auto pt-4">
           <button onClick={() => setIsTrainingModalOpen(true)} className="w-full bg-brand-primary hover:brightness-105 text-brand-text font-bold py-3 px-6 rounded-lg text-lg transition-all shadow-md">
