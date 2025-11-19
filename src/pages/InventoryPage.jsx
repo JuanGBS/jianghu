@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { ATTRIBUTE_TRANSLATIONS } from '../data/translations';
-// --- 1. IMPORTAR OS NOVOS DADOS DE ARMADURA ---
 import { ARMOR_TYPES } from '../data/armorTypes';
 import InventoryItemCard from '../components/character-sheet/InventoryItemCard';
 import InventoryItemForm from '../components/character-sheet/InventoryItemForm';
@@ -18,9 +17,18 @@ function InventoryPage({ character, onUpdateCharacter }) {
   const [editingItem, setEditingItem] = useState(null);
   const [itemToDelete, setItemToDelete] = useState(null);
 
-  const inventory = character.inventory || defaultInventory;
+  // --- CORREÇÃO: Lógica de Merge Seguro ---
+  // Garante que inventory.armor e inventory.weapon existam, mesmo em fichas antigas
+  const inventory = {
+    ...defaultInventory,
+    ...character.inventory,
+    weapon: { ...defaultInventory.weapon, ...(character.inventory?.weapon || {}) },
+    armor: { ...defaultInventory.armor, ...(character.inventory?.armor || {}) },
+    general: character.inventory?.general || []
+  };
 
   const handleSaveItem = (itemData) => {
+    // Clona o inventário atual (que já passou pelo merge seguro)
     const newInventory = JSON.parse(JSON.stringify(inventory));
     
     if (editingItem) {
@@ -38,7 +46,7 @@ function InventoryPage({ character, onUpdateCharacter }) {
   
   const handleDeleteItem = () => {
     if (itemToDelete === null) return;
-    const newInventory = { ...inventory };
+    const newInventory = JSON.parse(JSON.stringify(inventory));
     newInventory.general = newInventory.general.filter((_, index) => index !== itemToDelete);
     onUpdateCharacter({ ...character, inventory: newInventory });
     setItemToDelete(null);
@@ -64,7 +72,7 @@ function InventoryPage({ character, onUpdateCharacter }) {
           <div>
             <h3 className="text-xl font-semibold text-brand-text border-b pb-2 mb-4">Equipamentos</h3>
             <div className="space-y-4">
-              {/* Arma Principal (sem alterações) */}
+              {/* Arma Principal */}
               <div className="bg-gray-100 p-4 rounded-lg">
                 <label className={labelStyle}>Arma Principal</label>
                 <input name="name" value={inventory.weapon.name} onChange={(e) => handleEquippedChange(e, 'weapon')} className={inputStyle} placeholder="Nome da Arma" />
@@ -78,10 +86,9 @@ function InventoryPage({ character, onUpdateCharacter }) {
                 <textarea name="properties" value={inventory.weapon.properties} onChange={(e) => handleEquippedChange(e, 'weapon')} className={`${inputStyle} mt-2 min-h-[40px]`} placeholder="Propriedades..."></textarea>
               </div>
               
-              {/* --- 2. SEÇÃO DE ARMADURA MODIFICADA --- */}
+              {/* Armadura */}
               <div className="bg-gray-100 p-4 rounded-lg">
                 <label className={labelStyle}>Armadura</label>
-                {/* Substitui o input por um select */}
                 <select name="type" value={inventory.armor.type} onChange={(e) => handleEquippedChange(e, 'armor')} className={`${selectStyle} bg-gray-50`}>
                   {ARMOR_TYPES.map(armor => (
                     <option key={armor.id} value={armor.id}>{armor.name}</option>
@@ -92,7 +99,7 @@ function InventoryPage({ character, onUpdateCharacter }) {
             </div>
           </div>
           
-          {/* Seção de Inventário Geral (sem alterações) */}
+          {/* Inventário Geral */}
           <div>
             <div className="flex justify-between items-center border-b pb-2 mb-4">
               <h3 className="text-xl font-semibold text-brand-text">Inventário Geral</h3>
@@ -118,7 +125,6 @@ function InventoryPage({ character, onUpdateCharacter }) {
         </div>
       </div>
 
-      {/* Modais (sem alterações) */}
       <Modal isOpen={isFormOpen} onClose={() => setIsFormOpen(false)}>
         <InventoryItemForm 
           onSave={handleSaveItem} 

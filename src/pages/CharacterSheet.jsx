@@ -1,6 +1,6 @@
-// ARQUIVO: src/pages/CharacterSheet.jsx (VERSÃO FINAL COM RESET DE TURNO)
+// ARQUIVO: src/pages/CharacterSheet.jsx
 
-import React, { useState, useRef, useEffect } from 'react'; // 1. Adicionar useEffect
+import React, { useState, useRef, useEffect } from 'react';
 import { CLANS_DATA } from '../data/clans';
 import { ARMOR_TYPES } from '../data/armorTypes';
 import { FIGHTING_STYLES, BODY_REFINEMENT_LEVELS, CULTIVATION_STAGES, MASTERY_LEVELS, ATTRIBUTE_PERICIAS } from '../data/gameData';
@@ -43,23 +43,27 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
   const [isAttackModalOpen, setIsAttackModalOpen] = useState(false);
   const [isMinorActionModalOpen, setIsMinorActionModalOpen] = useState(false);
 
-  // 2. LÓGICA DE RESET AUTOMÁTICO DO TURNO
-  const currentTurnCharacter = combatData?.is_active ? combatData.turn_order[combatData.current_turn_index] : null;
+  // LÓGICA DE RESET AUTOMÁTICO DO TURNO
+  // Verifica se existe combate ativo e pega o personagem do turno atual
+  const currentTurnCharacter = combatData?.status === 'active' && combatData.turn_order 
+    ? combatData.turn_order[combatData.current_turn_index] 
+    : null;
+
   const isMyTurn = currentTurnCharacter?.character_id === character.id;
 
   useEffect(() => {
-    // Se for o meu turno e minhas ações ainda não foram resetadas
+    // Se for o meu turno e minhas ações ainda não foram resetadas (lógica simples baseada na mudança de index)
     if (isMyTurn) {
       // Reseta as ações e o estado de concentração
       setCombatState({
         actionsUsed: { movement: false, major: false, minor: false },
         isConcentrated: false,
       });
-      // Navega automaticamente para a guia de combate
+      // Navega automaticamente para a guia de combate para chamar atenção
       setActiveTab('combat');
-      showNotification("É o seu turno!", "success");
+      showNotification("É o seu turno! Ações renovadas.", "success");
     }
-  }, [combatData?.current_turn_index]); // Esta é a "escuta". O efeito roda toda vez que o índice do turno muda.
+  }, [combatData?.current_turn_index]); // Roda toda vez que o turno muda no servidor
 
 
   const handleActionUsed = (actionType) => {
@@ -67,7 +71,6 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
   };
 
   const handleNewTurn = () => {
-    // A função onNewTurn no CombatPage agora é mais para o jogador resetar seu próprio turno se algo der errado
     setCombatState({
       actionsUsed: { movement: false, major: false, minor: false },
       isConcentrated: false,
@@ -96,11 +99,12 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
     
     if (combatState.isConcentrated) {
       rollData.mode = 'advantage';
-      showNotification("Ataque com Vantagem!", "success");
+      showNotification("Ataque com Vantagem (Concentração)!", "success");
     }
 
     rollData.onRollConfirmed = () => {
       handleActionUsed('major');
+      // Consome a concentração após o ataque
       setCombatState(prevState => ({ ...prevState, isConcentrated: false }));
     };
     openRollModal(rollData);
@@ -225,6 +229,7 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
       return <InventoryPage character={character} onUpdateCharacter={onUpdateCharacter} />;
     }
     if (activeTab === 'combat') {
+      // --- ALTERAÇÃO: PASSANDO combatData ---
       return (
         <CombatPage 
           character={character} 
@@ -236,6 +241,7 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
           onActionUsed={handleActionUsed}
           isMyTurn={isMyTurn}
           onEndTurn={onEndTurn}
+          combatData={combatData}
         />
       );
     }

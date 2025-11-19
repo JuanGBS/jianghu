@@ -7,7 +7,12 @@ import NotificationToast from "../components/ui/NotificationToast";
 import GmImageUploadModal from "../components/gm/GmImageUploadModal";
 import ImageViewerModal from "../components/gm/ImageViewerModal";
 import StartCombatModal from "../components/gm/StartCombatModal";
-import { TrashIcon, MagnifyingGlassIcon } from "@heroicons/react/24/solid";
+import {
+  TrashIcon,
+  MagnifyingGlassIcon,
+  CheckCircleIcon,
+  ClockIcon,
+} from "@heroicons/react/24/solid";
 
 const mapToCamelCase = (data) => {
   if (!data) return null;
@@ -29,6 +34,7 @@ const mapToCamelCase = (data) => {
     proficientPericias: data.proficient_pericias || [],
     inventory: data.inventory || {},
     createdAt: data.created_at,
+    activeCombatId: data.active_combat_id, // Mapeando o novo campo
   };
 };
 
@@ -55,17 +61,11 @@ function GameMasterPanel({ combatData, onNextTurn, onEndCombat }) {
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (charsError) {
-      console.error("Erro ao buscar personagens:", charsError);
-    } else {
-      setCharacters(chars);
-    }
+    if (charsError) console.error("Erro ao buscar personagens:", charsError);
+    else setCharacters(chars);
 
-    if (imgsError) {
-      console.error("Erro ao buscar imagens:", imgsError);
-    } else {
-      setGmImages(imgs);
-    }
+    if (imgsError) console.error("Erro ao buscar imagens:", imgsError);
+    else setGmImages(imgs);
 
     setIsLoading(false);
   };
@@ -74,40 +74,110 @@ function GameMasterPanel({ combatData, onNextTurn, onEndCombat }) {
     fetchAllData();
   }, []);
 
-  const handleStartCombat = async (participants) => {
-    showNotification("Rolando iniciativas e iniciando combate...", "success");
-
+const handleCreateCombatSession = async (participants) => {
+    showNotification("Criando sessão e convidando...", "info");
     const turnOrder = participants.map((char) => {
-      const agility = char.attributes?.agility || 0;
-      const initiativeRoll = Math.floor(Math.random() * 20) + 1 + agility;
+      let initiative = null;
+      if (char.isNpc) {
+        const roll = Math.floor(Math.random() * 20) + 1;
+        const bonus = char.attributes?.agility || 0;
+        initiative = roll + bonus;
+      }
       return {
         character_id: char.id,
+        user_id: char.user_id || null,
         name: char.name,
-        initiative: initiativeRoll,
         image_url: char.image_url,
+        attributes: char.attributes,
+        is_npc: !!char.isNpc,
+        initiative: initiative,
       };
     });
 
-    turnOrder.sort((a, b) => b.initiative - a.initiative);
-
-    await supabase
-      .from("combat")
-      .update({ is_active: false })
-      .eq("is_active", true);
-
-    const { error } = await supabase.from("combat").insert({
+    const { data: newCombatData, error: combatError } = await supabase.from("combat").insert({
       gm_id: user.id,
-      is_active: true,
+      status: "pending_initiative",
       turn_order: turnOrder,
       current_turn_index: 0,
+    }).select().single();
+
+    if (combatError) {
+      showNotification("Erro crítico ao criar combate.", "error");
+      console.error("Erro Combate:", combatError);
+      return;
+    }
+
+    console.log("Combate criado com ID:", newCombatData.id);
+    const playerCharacterIds = participants
+      .filter(p => !p.isNpc && p.id) 
+      .map(p => p.id);
+
+    if (playerCharacterIds.length > 0) {
+      console.log("Tentando convidar personagens IDs:", playerCharacterIds);
+      
+      const { data: updateData, error: updateError } = await supabase
+        .from('characters')
+        .update({ active_combat_id: newCombatData.id })
+        .in('id', playerCharacterIds)
+        .select();
+      
+      if (updateError) {
+        console.error("ERRO RLS - Falha ao atualizar ficha do jogador:", updateError);
+        showNotification("Erro: Mestre sem permissão para editar ficha.", "error");
+      } else if (updateData.length === 0) {
+        console.error("ERRO SILENCIOSO - Nenhum personagem foi atualizado. Verifique IDs.");
+        showNotification("Aviso: Nenhum jogador foi vinculado.", "warning");
+      } else {
+        console.log("Sucesso! Personagens atualizados:", updateData);
+        showNotification("Convites enviados com sucesso!", "success");
+      }
+    } else {
+        showNotification("Combate iniciado (apenas NPCs).", "success");
+    }
+  };
+
+  const handleForceStartCombat = async () => {
+    if (!combatData) return;
+
+    const updatedTurnOrder = combatData.turn_order.map((p) => {
+      if (p.initiative === null) {
+        const agility = p.attributes?.agility || 0;
+        return {
+          ...p,
+          initiative: Math.floor(Math.random() * 20) + 1 + agility,
+        };
+      }
+      return p;
     });
 
-    if (error) {
-      showNotification("Erro ao iniciar combate.", "error");
-      console.error(error);
-    } else {
-      showNotification("Combate iniciado!", "success");
-    }
+    updatedTurnOrder.sort((a, b) => b.initiative - a.initiative);
+
+    const { error } = await supabase
+      .from("combat")
+      .update({
+        turn_order: updatedTurnOrder,
+        status: "active",
+      })
+      .eq("id", combatData.id);
+
+    if (error) showNotification("Erro ao iniciar combate.", "error");
+    else showNotification("Combate iniciado!", "success");
+  };
+
+  // --- ALTERAÇÃO: Limpar active_combat_id ao encerrar ---
+  const handleEndCombatLocal = async () => {
+    if (!combatData) return;
+
+    // 1. Limpa o ID dos personagens
+    const { error: updateError } = await supabase
+        .from('characters')
+        .update({ active_combat_id: null })
+        .eq('active_combat_id', combatData.id);
+    
+    if (updateError) console.error("Erro ao liberar personagens:", updateError);
+
+    // 2. Chama a função original de deletar o combate
+    onEndCombat();
   };
 
   const handleImageUpload = async (file, category) => {
@@ -129,13 +199,14 @@ function GameMasterPanel({ combatData, onNextTurn, onEndCombat }) {
       data: { publicUrl },
     } = supabase.storage.from("character-images").getPublicUrl(filePath);
 
-    const { error: dbError } = await supabase.from("gm_images").insert({
-      uploader_id: user.id,
-      category,
-      file_path: filePath,
-      image_url: publicUrl,
-    });
-
+    const { error: dbError } = await supabase
+      .from("gm_images")
+      .insert({
+        uploader_id: user.id,
+        category,
+        file_path: filePath,
+        image_url: publicUrl,
+      });
     if (dbError) {
       showNotification("Falha ao salvar no banco de dados.", "error");
     } else {
@@ -230,25 +301,50 @@ function GameMasterPanel({ combatData, onNextTurn, onEndCombat }) {
       </div>
 
       <div className="space-y-8">
-        {combatData && combatData.is_active && (
+        {combatData && (
           <div className="bg-white p-6 rounded-2xl shadow-lg border-2 border-red-500">
             <h2 className="text-3xl font-bold text-brand-text mb-4">
-              Combate Ativo
+              Combate em Andamento
             </h2>
-            <div className="flex space-x-4">
-              <button
-                onClick={onNextTurn}
-                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg"
-              >
-                Próximo Turno
-              </button>
-              <button
-                onClick={onEndCombat}
-                className="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg"
-              >
-                Encerrar Combate
-              </button>
-            </div>
+            {combatData.status === "pending_initiative" && (
+              <div>
+                <h3 className="font-semibold mb-2">Aguardando Iniciativa:</h3>
+                <ul className="list-disc list-inside">
+                  {combatData.turn_order.map((p) => (
+                    <li key={p.character_id} className="flex items-center">
+                      {p.initiative === null ? (
+                        <ClockIcon className="h-4 w-4 text-yellow-500 mr-2" />
+                      ) : (
+                        <CheckCircleIcon className="h-4 w-4 text-green-500 mr-2" />
+                      )}
+                      {p.name} ({p.initiative ?? "..."})
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  onClick={handleForceStartCombat}
+                  className="w-full mt-4 bg-green-500 text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-400"
+                >
+                  Forçar Início da Luta
+                </button>
+              </div>
+            )}
+            {combatData.status === "active" && (
+              <div className="flex space-x-4">
+                <button
+                  onClick={onNextTurn}
+                  className="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg"
+                >
+                  Próximo Turno
+                </button>
+                <button
+                  onClick={handleEndCombatLocal} // Usa a nova função local
+                  className="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg"
+                >
+                  Encerrar Combate
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -260,6 +356,7 @@ function GameMasterPanel({ combatData, onNextTurn, onEndCombat }) {
             <button
               onClick={() => setIsStartCombatModalOpen(true)}
               className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg"
+              disabled={!!combatData}
             >
               Iniciar Combate
             </button>
@@ -345,7 +442,7 @@ function GameMasterPanel({ combatData, onNextTurn, onEndCombat }) {
         isOpen={isStartCombatModalOpen}
         onClose={() => setIsStartCombatModalOpen(false)}
         characters={characters}
-        onStartCombat={handleStartCombat}
+        onStartCombat={handleCreateCombatSession}
       />
       <GmImageUploadModal
         isOpen={isUploadModalOpen}
