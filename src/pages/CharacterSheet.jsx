@@ -1,5 +1,3 @@
-// ARQUIVO: src/pages/CharacterSheet.jsx
-
 import React, { useState, useRef, useEffect } from 'react';
 import { CLANS_DATA } from '../data/clans';
 import { ARMOR_TYPES } from '../data/armorTypes';
@@ -16,15 +14,49 @@ import Modal from '../components/ui/Modal';
 import TechniqueCreatorForm from '../components/character-sheet/TechniqueCreatorForm';
 import ConfirmationModal from '../components/ui/ConfirmationModal';
 import RollTestModal from '../components/character-sheet/RollTestModal';
-import { PhotoIcon, StarIcon, ArrowUturnLeftIcon } from '@heroicons/react/24/solid';
+import { PhotoIcon, StarIcon, ArrowUturnLeftIcon, PencilSquareIcon } from '@heroicons/react/24/solid';
 import CombatPage from './CombatPage';
 import AttackChoiceModal from '../components/character-sheet/AttackChoiceModal';
 import MinorActionModal from '../components/character-sheet/MinorActionModal';
 import { useAuth } from '../context/AuthContext';
 
-function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotification, addRollToHistory, onOpenImageTray, onTrain, onBack, combatData, onEndTurn }) {
+// --- NOVO COMPONENTE: Input Otimizado para Status ---
+// Só salva no banco quando clica fora (onBlur) ou aperta Enter
+function StatInput({ value, onSave, className, placeholder }) {
+  const [localValue, setLocalValue] = useState(value);
+
+  useEffect(() => {
+    setLocalValue(value);
+  }, [value]);
+
+  const handleBlur = () => {
+    if (String(localValue) !== String(value)) {
+      onSave(localValue);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.target.blur(); // Força o blur para salvar
+    }
+  };
+
+  return (
+    <input
+      type="number"
+      value={localValue}
+      onChange={(e) => setLocalValue(e.target.value)}
+      onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+      className={`w-20 text-center bg-transparent border-b-2 border-transparent hover:border-gray-300 focus:border-purple-500 focus:outline-none transition-colors appearance-none m-0 p-0 ${className}`}
+      placeholder={placeholder}
+    />
+  );
+}
+
+function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotification, addRollToHistory, onOpenImageTray, onTrain, onBack, combatData, onEndTurn, isGmMode = false }) {
   const { signOut } = useAuth();
-  const clan = CLANS_DATA[character.clanId];
+  const clan = CLANS_DATA[character.clanId] || { name: 'Clã Desconhecido', baseHp: 5, passiveAbility: { name: '-', description: '-' } };
   const innateBodyData = INNATE_BODIES.find(body => body.id === character.innateBodyId) || { effects: {} };
 
   const [activeTab, setActiveTab] = useState('sheet');
@@ -43,8 +75,41 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
   const [isAttackModalOpen, setIsAttackModalOpen] = useState(false);
   const [isMinorActionModalOpen, setIsMinorActionModalOpen] = useState(false);
 
-  // LÓGICA DE RESET AUTOMÁTICO DO TURNO
-  // Verifica se existe combate ativo e pega o personagem do turno atual
+  // --- CÁLCULOS ---
+  const inventory = character.inventory || { armor: { type: 'none' } };
+  const armorType = inventory.armor?.type || 'none';
+  const selectedArmor = ARMOR_TYPES.find(a => a.id === armorType) || ARMOR_TYPES.find(a => a.id === 'none');
+  const agilityPenalty = selectedArmor.effects.agilityPenalty;
+  
+  const initialClanHp = CLANS_DATA[character.clanId]?.baseHp || 0;
+  const innateHpBonus = innateBodyData.effects?.stat_bonus?.baseHp || 0;
+  const effectiveBaseHp = initialClanHp + innateHpBonus;
+  const refinementLevel = BODY_REFINEMENT_LEVELS.find(l => l.id === (character.bodyRefinementLevel || 0));
+  const refinementMultiplierBonus = innateBodyData.effects?.body_refinement_multiplier_bonus || 0;
+  const finalRefinementMultiplier = (refinementLevel?.multiplier || 1) + (refinementLevel && refinementLevel.id > 0 ? refinementMultiplierBonus : 0);
+  
+  const calcMaxHp = Math.floor((effectiveBaseHp + character.attributes.vigor) * finalRefinementMultiplier);
+  
+  const baseChi = 5 + character.attributes.discipline;
+  const cultivationMultiplier = CULTIVATION_STAGES.find(s => s.id === (character.cultivationStage || 0))?.multiplier || 1;
+  const masteryLevelValue = character.masteryLevel || 0;
+  const masteryFlatBonus = MASTERY_LEVELS.find(l => l.id === masteryLevelValue)?.bonus || 0;
+  const innateChiPerMastery = innateBodyData.effects?.max_chi_per_mastery || 0;
+  
+  const calcMaxChi = Math.floor(baseChi * cultivationMultiplier) + masteryFlatBonus + (masteryLevelValue * innateChiPerMastery);
+  
+  const agilityValue = character.attributes.agility;
+  let calcArmorClass = 10 + agilityValue;
+  if (selectedArmor.effects.baseArmorClass !== null) {
+    calcArmorClass = selectedArmor.effects.baseArmorClass + agilityValue + agilityPenalty;
+  }
+
+  // --- LÓGICA DE PRIORIDADE (GM OVERRIDE) ---
+  const finalMaxHp = (isGmMode && character.stats.manualMaxHp) ? character.stats.manualMaxHp : calcMaxHp;
+  const finalMaxChi = (isGmMode && character.stats.manualMaxChi) ? character.stats.manualMaxChi : calcMaxChi;
+  const finalArmorClass = (isGmMode && character.stats.manualArmorClass) ? character.stats.manualArmorClass : calcArmorClass;
+
+  // --- LÓGICA DE COMBATE ---
   const currentTurnCharacter = combatData?.status === 'active' && combatData.turn_order 
     ? combatData.turn_order[combatData.current_turn_index] 
     : null;
@@ -52,18 +117,15 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
   const isMyTurn = currentTurnCharacter?.character_id === character.id;
 
   useEffect(() => {
-    // Se for o meu turno e minhas ações ainda não foram resetadas (lógica simples baseada na mudança de index)
     if (isMyTurn) {
-      // Reseta as ações e o estado de concentração
       setCombatState({
         actionsUsed: { movement: false, major: false, minor: false },
         isConcentrated: false,
       });
-      // Navega automaticamente para a guia de combate para chamar atenção
       setActiveTab('combat');
       showNotification("É o seu turno! Ações renovadas.", "success");
     }
-  }, [combatData?.current_turn_index]); // Roda toda vez que o turno muda no servidor
+  }, [combatData?.current_turn_index]);
 
 
   const handleActionUsed = (actionType) => {
@@ -104,7 +166,6 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
 
     rollData.onRollConfirmed = () => {
       handleActionUsed('major');
-      // Consome a concentração após o ataque
       setCombatState(prevState => ({ ...prevState, isConcentrated: false }));
     };
     openRollModal(rollData);
@@ -146,33 +207,27 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
     }
   };
 
+  // --- MANIPULAÇÃO DE ATRIBUTOS ---
+  const handleAttributeEdit = (attrKey, newValue) => {
+    if (!isGmMode) return;
+    const val = parseInt(newValue);
+    if (!isNaN(val)) {
+        const newAttributes = { ...character.attributes, [attrKey]: val };
+        onUpdateCharacter({ ...character, attributes: newAttributes });
+    }
+  };
+
+  const handleManualStatEdit = (statKey, newValue) => {
+      if (!isGmMode) return;
+      const val = parseInt(newValue);
+      if (!isNaN(val)) {
+          const newStats = { ...character.stats, [statKey]: val };
+          onUpdateCharacter({ ...character, stats: newStats });
+      }
+  };
+
   const isFormModalOpen = isCreating || editingTechnique !== null;
   const anyModalIsOpen = isFormModalOpen || isDeleteModalOpen || rollModalData !== null || isAttackModalOpen || isMinorActionModalOpen;
-
-  const inventory = character.inventory || { armor: { type: 'none' } };
-  const armorType = inventory.armor?.type || 'none';
-  const selectedArmor = ARMOR_TYPES.find(a => a.id === armorType) || ARMOR_TYPES.find(a => a.id === 'none');
-  const agilityPenalty = selectedArmor.effects.agilityPenalty;
-  const initialClanHp = CLANS_DATA[character.clanId]?.baseHp || 0;
-  const innateHpBonus = innateBodyData.effects?.stat_bonus?.baseHp || 0;
-  const effectiveBaseHp = initialClanHp + innateHpBonus;
-  const refinementLevel = BODY_REFINEMENT_LEVELS.find(l => l.id === (character.bodyRefinementLevel || 0));
-  const refinementMultiplierBonus = innateBodyData.effects?.body_refinement_multiplier_bonus || 0;
-  const finalRefinementMultiplier = (refinementLevel?.multiplier || 1) + (refinementLevel && refinementLevel.id > 0 ? refinementMultiplierBonus : 0);
-  const displayMaxHp = Math.floor((effectiveBaseHp + character.attributes.vigor) * finalRefinementMultiplier);
-  const baseChi = 5 + character.attributes.discipline;
-  const cultivationMultiplier = CULTIVATION_STAGES.find(s => s.id === (character.cultivationStage || 0))?.multiplier || 1;
-  const masteryLevelValue = character.masteryLevel || 0;
-  const masteryFlatBonus = MASTERY_LEVELS.find(l => l.id === masteryLevelValue)?.bonus || 0;
-  const innateChiPerMastery = innateBodyData.effects?.max_chi_per_mastery || 0;
-  const displayMaxChi = Math.floor(baseChi * cultivationMultiplier) + masteryFlatBonus + (masteryLevelValue * innateChiPerMastery);
-  const agilityValue = character.attributes.agility;
-  let displayArmorClass;
-  if (selectedArmor.effects.baseArmorClass !== null) {
-    displayArmorClass = selectedArmor.effects.baseArmorClass + agilityValue + agilityPenalty;
-  } else {
-    displayArmorClass = 10 + agilityValue;
-  }
   
   const handleStatChange = (statKey, newValue) => {
     const validatedValue = Math.max(0, newValue);
@@ -226,10 +281,9 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
       return (<TechniquesPage character={character} onDeleteTechnique={handleTechniqueDelete} openCreateModal={openCreateModal} openEditModal={openEditModal} />);
     }
     if (activeTab === 'inventory') {
-      return <InventoryPage character={character} onUpdateCharacter={onUpdateCharacter} />;
+      return <InventoryPage character={character} onUpdateCharacter={onUpdateCharacter} isGmMode={isGmMode} />;
     }
     if (activeTab === 'combat') {
-      // --- ALTERAÇÃO: PASSANDO combatData ---
       return (
         <CombatPage 
           character={character} 
@@ -239,14 +293,14 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
           onOpenAttackModal={() => setIsAttackModalOpen(true)}
           onOpenMinorActionModal={() => setIsMinorActionModalOpen(true)}
           onActionUsed={handleActionUsed}
-          isMyTurn={isMyTurn}
+          isMyTurn={isGmMode ? true : isMyTurn} 
           onEndTurn={onEndTurn}
           combatData={combatData}
         />
       );
     }
     if (activeTab === 'progression') {
-      return <ProgressionPage character={character} onTrain={onTrain} showNotification={showNotification} />;
+      return <ProgressionPage character={character} onTrain={onTrain} showNotification={showNotification} isGmMode={isGmMode} onUpdateCharacter={onUpdateCharacter} />;
     }
     return (
       <div className="w-full self-start flex flex-col space-y-6">
@@ -257,15 +311,79 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
               <p className="text-sm text-gray-600 mt-1">{clan.passiveAbility.description}</p>
             </div>
         </div>
+        
+        {/* STATUS DE COMBATE (Com edição GM Otimizada) */}
         <div className="bg-white p-6 rounded-2xl shadow-lg w-full flex flex-col">
           <div>
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-xl font-semibold text-brand-text">Status de Combate</h3>
+              {isGmMode && <span className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded font-bold">Editável</span>}
             </div>
-            <div className="bg-gray-100 p-4 rounded-lg flex justify-around text-center">
-              <EditableStat label="PV" currentValue={character.stats.currentHp} maxValue={displayMaxHp} onSave={(newValue) => handleStatChange('currentHp', newValue)} colorClass="text-green-600" />
-              <EditableStat label="Chi" currentValue={character.stats.currentChi} maxValue={displayMaxChi} onSave={(newValue) => handleStatChange('currentChi', newValue)} colorClass="text-blue-500" />
-              <EditableStat label="CA" currentValue={displayArmorClass} onSave={() => {}} colorClass="text-red-600" />
+            <div className="bg-gray-100 p-4 rounded-lg flex justify-around text-center gap-2">
+              
+              {/* PV */}
+              <div className="flex flex-col items-center">
+                <span className="text-sm text-gray-500 mb-1 font-semibold">PV</span>
+                {isGmMode ? (
+                    <div className="flex flex-col items-center">
+                        <StatInput 
+                          value={character.stats.currentHp} 
+                          onSave={(val) => handleManualStatEdit('currentHp', val)} 
+                          className="text-2xl font-bold text-gray-700 mb-1"
+                        />
+                        <div className="w-12 border-t border-gray-300 my-1"></div>
+                        <StatInput 
+                          value={finalMaxHp} 
+                          onSave={(val) => handleManualStatEdit('manualMaxHp', val)} 
+                          className="text-lg font-bold text-green-600"
+                          placeholder="Máx"
+                        />
+                    </div>
+                ) : (
+                    <EditableStat label="" currentValue={character.stats.currentHp} maxValue={finalMaxHp} onSave={(newValue) => handleStatChange('currentHp', newValue)} colorClass="text-green-600" />
+                )}
+              </div>
+
+              {/* Chi */}
+              <div className="flex flex-col items-center">
+                <span className="text-sm text-gray-500 mb-1 font-semibold">Chi</span>
+                {isGmMode ? (
+                    <div className="flex flex-col items-center">
+                        <StatInput 
+                          value={character.stats.currentChi} 
+                          onSave={(val) => handleManualStatEdit('currentChi', val)} 
+                          className="text-2xl font-bold text-gray-700 mb-1"
+                        />
+                        <div className="w-12 border-t border-gray-300 my-1"></div>
+                        <StatInput 
+                          value={finalMaxChi} 
+                          onSave={(val) => handleManualStatEdit('manualMaxChi', val)} 
+                          className="text-lg font-bold text-blue-600"
+                          placeholder="Máx"
+                        />
+                    </div>
+                ) : (
+                    <EditableStat label="" currentValue={character.stats.currentChi} maxValue={finalMaxChi} onSave={(newValue) => handleStatChange('currentChi', newValue)} colorClass="text-blue-500" />
+                )}
+              </div>
+
+              {/* CA */}
+              <div className="flex flex-col items-center">
+                <span className="text-sm text-gray-500 mb-1 font-semibold">CA</span>
+                {isGmMode ? (
+                    <div className="flex flex-col items-center justify-center h-full mt-2">
+                        <StatInput 
+                          value={finalArmorClass} 
+                          onSave={(val) => handleManualStatEdit('manualArmorClass', val)} 
+                          className="text-3xl font-bold text-red-600"
+                          placeholder="CA"
+                        />
+                    </div>
+                ) : (
+                    <EditableStat label="" currentValue={finalArmorClass} onSave={() => {}} colorClass="text-red-600" />
+                )}
+              </div>
+
             </div>
           </div>
           <div className="flex justify-between items-center pt-4 mt-auto">
@@ -293,34 +411,53 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
           </button>
         )}
         <h1 className={`text-6xl font-bold text-center text-brand-primary mb-10 ${onBack ? 'w-full' : 'w-full text-center'}`} style={{ textShadow: '2px 2px 4px rgba(0,0,0,0.1)' }}>
-          Tales of Jianghu
+          {isGmMode ? <span className="text-purple-600 flex items-center justify-center gap-2"><PencilSquareIcon className="h-10 w-10"/> Editando NPC: {character.name}</span> : 'Tales of Jianghu'}
         </h1>
       </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-grow">
-        <div className="lg-col-span-1 bg-white p-8 rounded-2xl shadow-lg space-y-4 w-full self-start">
+        {/* COLUNA 1: ATRIBUTOS */}
+        <div className="lg:col-span-1 bg-white p-8 rounded-2xl shadow-lg space-y-4 w-full self-start">
           <div><h2 className="text-4xl font-bold text-brand-text">{character.name}</h2><p className="text-lg text-gray-500">{clan.name}</p></div>
           <hr />
           <div>
-            <h3 className="text-xl font-semibold text-brand-text">Atributos Finais</h3>
+            <h3 className="text-xl font-semibold text-brand-text flex justify-between items-center">
+                Atributos Finais
+                {isGmMode && <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded border border-yellow-200">Modo Edição</span>}
+            </h3>
             <div className="space-y-2 mt-3">
               {Object.entries(character.attributes).map(([key, value]) => {
                 const isProficient = character.proficientAttribute === key;
                 let attributeBonus = isProficient ? value * 2 : value;
                 if (key === 'agility') {
-                  attributeBonus += agilityPenalty;
+                   attributeBonus += agilityPenalty;
                 }
+                
                 return (
                   <div key={key} className="relative" onMouseEnter={() => handleMouseEnter(key)} onMouseLeave={handleMouseLeave}>
-                    <button
-                      onClick={() => openRollModal({ title: `Teste de ${ATTRIBUTE_TRANSLATIONS[key]}`, modifier: attributeBonus, modifierLabel: ATTRIBUTE_TRANSLATIONS[key] })}
-                      className={`w-full flex justify-between items-center p-3 rounded-lg transition-colors ${ isProficient ? 'bg-purple-100 hover:bg-purple-200' : 'bg-gray-100 hover:bg-gray-200'}`}
-                    >
+                    <div className={`w-full flex justify-between items-center p-3 rounded-lg transition-colors ${ isProficient ? 'bg-purple-100 hover:bg-purple-200' : 'bg-gray-100 hover:bg-gray-200'}`}>
                       <div className="flex items-center space-x-2">
                         {isProficient && <StarIcon className="h-5 w-5 text-yellow-500" />}
                         <span className="font-bold text-gray-700">{ATTRIBUTE_TRANSLATIONS[key]}</span>
                       </div>
-                      <span className="text-2xl font-bold text-purple-700">{value}</span>
-                    </button>
+                      
+                      {isGmMode ? (
+                          <StatInput 
+                             value={value}
+                             onSave={(val) => handleAttributeEdit(key, val)}
+                             className="w-16 text-right text-2xl font-bold text-purple-700"
+                          />
+                      ) : (
+                          <button 
+                            className="text-2xl font-bold text-purple-700 hover:scale-110 transition-transform"
+                            onClick={() => openRollModal({ title: `Teste de ${ATTRIBUTE_TRANSLATIONS[key]}`, modifier: attributeBonus, modifierLabel: ATTRIBUTE_TRANSLATIONS[key] })}
+                          >
+                            {value}
+                          </button>
+                      )}
+                    </div>
+                    
+                    {/* TOOLTIP DE PERICIAS (Só aparece no hover) */}
                     <div className={`absolute left-full top-0 ml-4 w-64 bg-white p-4 rounded-lg shadow-xl border z-[60] transition-all duration-200 ${hoveredAttribute === key ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-95 pointer-events-none'}`}>
                       <h5 className="font-bold text-brand-text border-b pb-2 mb-2">Perícias de {ATTRIBUTE_TRANSLATIONS[key]}</h5>
                       <div className="space-y-1 text-sm">
@@ -346,7 +483,9 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
             </div>
           </div>
         </div>
-        <div className="lg-col-span-1 flex items-center justify-center self-start">
+
+        {/* COLUNA 2 */}
+        <div className="lg:col-span-1 flex items-center justify-center self-start">
           <div className="relative group w-full max-w-sm mx-auto aspect-[3/4] bg-gray-100 rounded-2xl shadow-lg border-2 border-gray-200 overflow-hidden">
             <img 
               src={character.imageUrl || characterArt} 
@@ -362,6 +501,8 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
             </button>
           </div>
         </div>
+        
+        {/* COLUNA 3 */}
         <div className="lg:col-span-1 w-full self-start">
           <RightColumnContent />
         </div>

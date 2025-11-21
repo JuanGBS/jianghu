@@ -1,5 +1,3 @@
-// ARQUIVO: src/components/combat/InitiativeTracker.jsx (NOVO ARQUIVO)
-
 import React from 'react';
 import { UserIcon, ChevronDoubleRightIcon } from '@heroicons/react/24/solid';
 
@@ -8,39 +6,68 @@ function InitiativeTracker({ turnOrder, currentIndex }) {
     return null;
   }
 
-  const getVisibleParticipants = () => {
-    const visible = [];
+  // Se tiver poucos participantes (3 ou menos), mostra lista estática para não confundir
+  const isSmallList = turnOrder.length <= 3;
+
+  let visibleParticipants;
+  
+  if (isSmallList) {
+    visibleParticipants = turnOrder.map((p, idx) => ({ ...p, realIndex: idx }));
+  } else {
+    // Lógica de carrossel para muitos participantes
+    visibleParticipants = [];
     for (let i = 0; i < 3; i++) {
       const index = (currentIndex + i) % turnOrder.length;
-      visible.push(turnOrder[index]);
+      visibleParticipants.push({ ...turnOrder[index], realIndex: index });
     }
-    return visible;
-  };
-
-  const visibleParticipants = getVisibleParticipants();
+  }
 
   return (
-    <div className="fixed top-4 right-4 z-50 bg-white/80 backdrop-blur-sm p-3 rounded-xl shadow-lg border border-gray-200">
-      <h4 className="font-bold text-xs text-gray-500 uppercase tracking-wider mb-2 text-center">Iniciativa</h4>
-      <div className="flex space-x-3">
-        {visibleParticipants.map((participant, index) => (
-          <div 
-            key={participant.character_id + index} 
-            className={`flex flex-col items-center transition-all duration-300 ${index === 0 ? 'scale-110' : 'opacity-60'}`}
-          >
+    <div className="fixed top-4 right-4 z-50 bg-white/90 backdrop-blur-md p-3 rounded-xl shadow-2xl border-2 border-purple-100">
+      <h4 className="font-bold text-xs text-gray-400 uppercase tracking-wider mb-2 text-center">
+        {isSmallList ? "Ordem de Turno" : "Iniciativa"}
+      </h4>
+      <div className="flex space-x-3 justify-center">
+        {visibleParticipants.map((participant, idx) => {
+          // Determina se este card é o ativo
+          const isActive = isSmallList 
+            ? participant.realIndex === currentIndex 
+            : idx === 0; // No carrossel, o primeiro é sempre o ativo
+
+          return (
             <div 
-              className={`w-16 h-16 rounded-lg bg-gray-200 overflow-hidden border-2 ${index === 0 ? 'border-purple-500' : 'border-transparent'}`}
+              key={`${participant.character_id}-${idx}`} 
+              className={`flex flex-col items-center transition-all duration-300 ${
+                isActive ? 'scale-110 opacity-100' : 'scale-90 opacity-60 grayscale'
+              }`}
             >
-              {participant.image_url ? (
-                <img src={participant.image_url} alt={participant.name} className="w-full h-full object-cover" />
-              ) : (
-                <UserIcon className="w-full h-full text-gray-400 p-2" />
-              )}
+              <div 
+                className={`relative w-14 h-14 rounded-lg overflow-hidden border-2 shadow-sm ${
+                  isActive ? 'border-purple-600 ring-2 ring-purple-200' : 'border-gray-200'
+                }`}
+              >
+                {participant.image_url ? (
+                  <img src={participant.image_url} alt={participant.name} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                    <UserIcon className="w-8 h-8 text-gray-400" />
+                  </div>
+                )}
+                
+                {/* Badge de Iniciativa */}
+                <div className="absolute bottom-0 right-0 bg-black/60 text-white text-[10px] px-1 font-bold">
+                    {participant.initiative}
+                </div>
+              </div>
+              
+              <p className={`text-xs font-bold mt-1 truncate w-16 text-center ${isActive ? 'text-purple-700' : 'text-gray-500'}`}>
+                {participant.name}
+              </p>
+              
+              {isActive && <ChevronDoubleRightIcon className="h-4 w-4 text-purple-600 absolute -bottom-3 animate-bounce" />}
             </div>
-            <p className="text-sm font-semibold text-brand-text mt-1 truncate w-16 text-center">{participant.name}</p>
-            {index === 0 && <ChevronDoubleRightIcon className="h-5 w-5 text-purple-500 absolute -bottom-2" />}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

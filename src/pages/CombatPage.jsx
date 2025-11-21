@@ -1,22 +1,23 @@
 import React from 'react';
-import { BoltIcon, ShieldCheckIcon, HandRaisedIcon, PlusCircleIcon, CheckCircleIcon, EyeIcon, ClockIcon, NoSymbolIcon } from '@heroicons/react/24/solid';
+import { BoltIcon, ShieldCheckIcon, HandRaisedIcon, PlusCircleIcon, CheckCircleIcon, EyeIcon, ClockIcon, NoSymbolIcon, ArrowPathIcon } from '@heroicons/react/24/solid';
 
-function CombatPage({ character, combatState, onNewTurn, openRollModal, onOpenAttackModal, onOpenMinorActionModal, onActionUsed, isMyTurn, onEndTurn, combatData }) {
+function CombatPage({ character, combatState, onNewTurn, openRollModal, onOpenAttackModal, onOpenMinorActionModal, onActionUsed, isMyTurn, onEndTurn, combatData, onRefresh }) {
 
-  // 0. VERIFICAÇÃO DE SEGURANÇA: SE NÃO TIVER DADOS
+  // 0. SEM COMBATE
   if (!combatData) {
     return (
       <div className="bg-white p-6 rounded-2xl shadow-lg flex flex-col h-full items-center justify-center text-center">
         <NoSymbolIcon className="h-16 w-16 text-gray-300 mb-4" />
         <h3 className="text-xl font-bold text-gray-500">Nenhum Combate Ativo</h3>
-        <p className="text-gray-400 text-sm mt-2">Aguarde o Mestre iniciar um combate...</p>
+        <p className="text-gray-400 text-sm mt-2">Aguarde o Mestre iniciar.</p>
+        {/* Botão de refresh aqui também, caso o estado esteja bugado sem combatData mas com ID */}
+        <button onClick={onRefresh} className="mt-4 text-purple-600 font-bold text-sm flex items-center"><ArrowPathIcon className="h-4 w-4 mr-1" /> Forçar Sincronização</button>
       </div>
     );
   }
 
-  // 1. STATUS PENDENTE (SALA DE ESPERA / INICIATIVA)
+  // 1. PREPARANDO COMBATE
   if (combatData.status === 'pending_initiative') {
-    // Verifica se EU já rolei minha iniciativa
     const myData = combatData.turn_order.find(p => p.character_id === character.id);
     const myInitiative = myData?.initiative;
     const hasRolled = myInitiative !== null && myInitiative !== undefined;
@@ -28,15 +29,22 @@ function CombatPage({ character, combatState, onNewTurn, openRollModal, onOpenAt
         </div>
         <h2 className="text-2xl font-bold text-brand-text mb-2">Preparando Combate...</h2>
         
+        <button 
+            onClick={onRefresh}
+            className="flex items-center gap-2 text-sm text-purple-600 font-semibold hover:bg-purple-50 px-3 py-1 rounded-lg mb-4 transition-colors"
+        >
+            <ArrowPathIcon className="h-4 w-4" /> Atualizar Status / Destravar
+        </button>
+        
         {!hasRolled ? (
           <div className="space-y-2">
              <p className="text-gray-600 text-lg font-bold animate-pulse">Role sua Iniciativa!</p>
-             <p className="text-sm text-gray-500">(O modal deve aparecer na tela)</p>
+             <p className="text-sm text-gray-500">(Janela aberta)</p>
           </div>
         ) : (
           <div className="space-y-2">
             <p className="text-green-600 font-bold text-xl">Sua Iniciativa: {myInitiative}</p>
-            <p className="text-gray-500">Aguardando o Mestre iniciar a rodada.</p>
+            <p className="text-gray-500">Aguardando o Mestre.</p>
           </div>
         )}
 
@@ -52,7 +60,7 @@ function CombatPage({ character, combatState, onNewTurn, openRollModal, onOpenAt
                 {p.initiative !== null ? (
                   <span className="text-purple-600 font-bold">{p.initiative}</span>
                 ) : (
-                  <span className="text-gray-400 text-sm italic">Rolando...</span>
+                  <span className="text-gray-400 text-sm italic">...</span>
                 )}
               </li>
             ))}
@@ -62,155 +70,63 @@ function CombatPage({ character, combatState, onNewTurn, openRollModal, onOpenAt
     );
   }
 
-  // --- LÓGICA PADRÃO DE COMBATE (STATUS ACTIVE) ---
-
+  // 2. COMBATE ATIVO
   const currentTurnIndex = combatData.current_turn_index || 0;
   const turnOrder = combatData.turn_order || [];
   const activeParticipant = turnOrder[currentTurnIndex];
-  
   const activeName = activeParticipant ? activeParticipant.name : '...';
 
-  const handleDodge = () => {
-    openRollModal({
-      title: 'Teste de Esquiva',
-      modifier: character.attributes.agility,
-      modifierLabel: 'Agilidade'
-    });
-  };
-
-  const handleBlock = () => {
-    openRollModal({
-      title: 'Teste de Bloqueio',
-      modifier: character.attributes.vigor,
-      modifierLabel: 'Vigor'
-    });
-  };
-  
-  const handleMovement = () => {
-    if (combatState.actionsUsed.movement) return;
-    onActionUsed('movement');
-  }
+  const handleDodge = () => openRollModal({ title: 'Teste de Esquiva', modifier: character.attributes.agility, modifierLabel: 'Agilidade' });
+  const handleBlock = () => openRollModal({ title: 'Teste de Bloqueio', modifier: character.attributes.vigor, modifierLabel: 'Vigor' });
+  const handleMovement = () => { if (!combatState.actionsUsed.movement) onActionUsed('movement'); }
 
   return (
     <div className="bg-white p-6 rounded-2xl shadow-lg flex flex-col max-h-[70vh] h-full relative">
-      
-      {/* FEEDBACK DE TURNO */}
       <div className="flex justify-between items-center border-b pb-2 mb-4 flex-shrink-0">
         <h3 className="text-xl font-semibold text-brand-text">Painel de Combate</h3>
         {isMyTurn ? (
-          <span className="text-sm font-bold text-green-600 animate-pulse bg-green-100 px-2 py-1 rounded-full">
-            SEU TURNO
-          </span>
+          <span className="text-sm font-bold text-green-600 animate-pulse bg-green-100 px-3 py-1 rounded-full shadow-sm">SEU TURNO</span>
         ) : (
-          <span className="text-sm font-bold text-gray-500 flex items-center bg-gray-100 px-2 py-1 rounded-full">
-            <ClockIcon className="h-4 w-4 mr-1" />
-            Vez de: {activeName}
-          </span>
+          <span className="text-sm font-bold text-gray-500 flex items-center bg-gray-100 px-3 py-1 rounded-full"><ClockIcon className="h-4 w-4 mr-1" /> Vez de: {activeName}</span>
         )}
       </div>
+      
+      <div className="absolute top-0 right-0 mt-[-40px]">
+         <button onClick={onRefresh} className="text-xs text-gray-400 hover:text-purple-600 flex items-center gap-1 p-2"><ArrowPathIcon className="h-4 w-4" /></button>
+      </div>
 
-      {/* OVERLAY DE BLOQUEIO (SE NÃO FOR O TURNO) */}
-      {!isMyTurn && (
-        <div className="absolute inset-0 top-16 bg-white/60 backdrop-blur-[1px] z-10 flex items-center justify-center rounded-b-2xl pointer-events-none">
-        </div>
-      )}
+      {!isMyTurn && <div className="absolute inset-0 top-16 bg-white/60 backdrop-blur-[1px] z-10 flex flex-col items-center justify-center rounded-b-2xl pointer-events-none"></div>}
       
       <div className="space-y-6 overflow-y-auto pr-2 flex-grow">
-        {/* STATUS DA RODADA */}
         <div>
           <div className="flex justify-between items-center mb-2">
             <h4 className="font-bold text-gray-700 text-sm">Ações no Turno</h4>
-            {isMyTurn && (
-              <button onClick={onNewTurn} className="text-xs font-semibold text-purple-600 hover:text-purple-800 underline">
-                Resetar Ações
-              </button>
-            )}
+            {isMyTurn && (<button onClick={onNewTurn} className="text-xs font-semibold text-purple-600 hover:text-purple-800 underline">Resetar (Debug)</button>)}
           </div>
-
           <div className="grid grid-cols-3 gap-2 bg-gray-100 p-2 rounded-lg text-center font-semibold text-sm">
-            <button 
-              onClick={handleMovement} 
-              disabled={!isMyTurn || combatState.actionsUsed.movement}
-              className={`py-1 rounded-md transition-colors disabled:opacity-50 ${
-                combatState.actionsUsed.movement 
-                  ? 'line-through text-gray-400 bg-gray-200' 
-                  : 'text-gray-800 hover:bg-white bg-white shadow-sm'
-              }`}
-            >
-              Movimento
-            </button>
-            <span className={`py-1 rounded-md ${combatState.actionsUsed.major ? 'line-through text-gray-400 bg-gray-200' : 'text-gray-800 bg-white shadow-sm'}`}>
-              Ação Maior
-            </span>
-            <span className={`py-1 rounded-md ${combatState.actionsUsed.minor ? 'line-through text-gray-400 bg-gray-200' : 'text-gray-800 bg-white shadow-sm'}`}>
-              Ação Menor
-            </span>
+            <button onClick={handleMovement} disabled={!isMyTurn || combatState.actionsUsed.movement} className={`py-2 rounded-md transition-all ${combatState.actionsUsed.movement ? 'line-through text-gray-400 bg-gray-200' : 'text-gray-800 bg-white shadow-sm hover:bg-gray-50'}`}>Movimento</button>
+            <span className={`py-2 rounded-md flex items-center justify-center ${combatState.actionsUsed.major ? 'line-through text-gray-400 bg-gray-200' : 'text-gray-800 bg-white shadow-sm'}`}>Ação Maior</span>
+            <span className={`py-2 rounded-md flex items-center justify-center ${combatState.actionsUsed.minor ? 'line-through text-gray-400 bg-gray-200' : 'text-gray-800 bg-white shadow-sm'}`}>Ação Menor</span>
           </div>
-
-          {combatState.isConcentrated && (
-            <div className="mt-3 bg-blue-50 border border-blue-200 p-2 rounded-lg flex items-center justify-center text-blue-800 text-sm font-bold animate-pulse">
-              <EyeIcon className="h-4 w-4 mr-2" />
-              Concentrado (Próximo ataque com Vantagem)
-            </div>
-          )}
+          {combatState.isConcentrated && (<div className="mt-3 bg-blue-50 border border-blue-200 p-2 rounded-lg flex items-center justify-center text-blue-800 text-sm font-bold animate-pulse"><EyeIcon className="h-4 w-4 mr-2" /> Concentrado (Vantagem no Ataque)</div>)}
         </div>
 
-        {/* BOTÕES DE AÇÃO PRINCIPAL */}
         <div className="grid grid-cols-2 gap-4">
-          <div>
-            <h4 className="font-bold text-gray-700 block text-sm mb-2">Ação Maior</h4>
-            <button 
-                onClick={onOpenAttackModal}
-                disabled={!isMyTurn || combatState.actionsUsed.major}
-                className="w-full flex flex-col items-center justify-center space-y-1 p-4 bg-red-100 text-red-800 font-bold rounded-xl hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:shadow-md"
-            >
-                <BoltIcon className="h-8 w-8" />
-                <span>Atacar / Técnica</span>
-            </button>
-          </div>
-          <div>
-            <h4 className="font-bold text-gray-700 block text-sm mb-2">Ação Menor</h4>
-            <button 
-                onClick={onOpenMinorActionModal}
-                disabled={!isMyTurn || combatState.actionsUsed.minor}
-                className="w-full flex flex-col items-center justify-center space-y-1 p-4 bg-blue-100 text-blue-800 font-bold rounded-xl hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:shadow-md"
-            >
-                <PlusCircleIcon className="h-8 w-8" />
-                <span>Usar Ação Menor</span>
-            </button>
-          </div>
+          <div><h4 className="font-bold text-gray-700 block text-sm mb-2">Ação Maior</h4><button onClick={onOpenAttackModal} disabled={!isMyTurn || combatState.actionsUsed.major} className="w-full flex flex-col items-center justify-center space-y-1 p-4 bg-red-50 text-red-700 font-bold rounded-xl border-2 border-red-100 hover:bg-red-100 hover:border-red-300 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow-md"><BoltIcon className="h-8 w-8" /><span>Atacar / Técnica</span></button></div>
+          <div><h4 className="font-bold text-gray-700 block text-sm mb-2">Ação Menor</h4><button onClick={onOpenMinorActionModal} disabled={!isMyTurn || combatState.actionsUsed.minor} className="w-full flex flex-col items-center justify-center space-y-1 p-4 bg-blue-50 text-blue-700 font-bold rounded-xl border-2 border-blue-100 hover:bg-blue-100 hover:border-blue-300 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow-md"><PlusCircleIcon className="h-8 w-8" /><span>Usar Ação Menor</span></button></div>
         </div>
         
-        {/* REAÇÕES */}
         <div className="relative z-20 pt-4 border-t mt-2">
           <h4 className="font-bold text-gray-700 block text-sm mb-2">Defesa Ativa (Reação)</h4>
           <div className="grid grid-cols-2 gap-3">
-             <button onClick={handleDodge} className="flex items-center justify-center space-x-2 p-3 bg-green-100 text-green-800 font-bold rounded-lg hover:bg-green-200 shadow-sm border border-green-200">
-                <HandRaisedIcon className="h-5 w-5" />
-                <span>Esquivar</span>
-             </button>
-             <button onClick={handleBlock} className="flex items-center justify-center space-x-2 p-3 bg-yellow-100 text-yellow-800 font-bold rounded-lg hover:bg-yellow-200 shadow-sm border border-yellow-200">
-                <ShieldCheckIcon className="h-5 w-5" />
-                <span>Bloquear</span>
-            </button>
+             <button onClick={handleDodge} className="flex items-center justify-center space-x-2 p-3 bg-white text-green-700 font-bold rounded-lg border-2 border-green-100 hover:bg-green-50 hover:border-green-300 transition-all shadow-sm"><HandRaisedIcon className="h-5 w-5" /><span>Esquivar</span></button>
+             <button onClick={handleBlock} className="flex items-center justify-center space-x-2 p-3 bg-white text-yellow-700 font-bold rounded-lg border-2 border-yellow-100 hover:bg-yellow-50 hover:border-yellow-300 transition-all shadow-sm"><ShieldCheckIcon className="h-5 w-5" /><span>Bloquear</span></button>
           </div>
         </div>
       </div>
 
-      {/* FINALIZAR TURNO */}
-      <div className="mt-auto pt-4 border-t">
-        <button
-          onClick={onEndTurn}
-          disabled={!isMyTurn}
-          className={`w-full flex items-center justify-center space-x-2 p-4 rounded-xl font-bold text-lg shadow-lg transition-all ${
-             isMyTurn 
-              ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 transform hover:scale-[1.02]' 
-              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-          }`}
-        >
-          <CheckCircleIcon className="h-6 w-6" />
-          <span>{isMyTurn ? 'Finalizar Turno' : `Aguardando ${activeName}...`}</span>
-        </button>
+      <div className="mt-auto pt-4 border-t relative z-20">
+        <button onClick={onEndTurn} disabled={!isMyTurn} className={`w-full flex items-center justify-center space-x-2 p-4 rounded-xl font-bold text-lg shadow-lg transition-all ${isMyTurn ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 transform hover:scale-[1.02] cursor-pointer' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'}`}><CheckCircleIcon className="h-6 w-6" /><span>{isMyTurn ? 'Finalizar Turno' : `Aguardando ${activeName}...`}</span></button>
       </div>
     </div>
   );

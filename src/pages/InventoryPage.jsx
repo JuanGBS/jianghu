@@ -12,13 +12,12 @@ const defaultInventory = {
   general: [],
 };
 
-function InventoryPage({ character, onUpdateCharacter }) {
+function InventoryPage({ character, onUpdateCharacter, isGmMode }) {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [itemToDelete, setItemToDelete] = useState(null);
 
-  // --- CORREÇÃO: Lógica de Merge Seguro ---
-  // Garante que inventory.armor e inventory.weapon existam, mesmo em fichas antigas
+  // Merge seguro
   const inventory = {
     ...defaultInventory,
     ...character.inventory,
@@ -28,7 +27,6 @@ function InventoryPage({ character, onUpdateCharacter }) {
   };
 
   const handleSaveItem = (itemData) => {
-    // Clona o inventário atual (que já passou pelo merge seguro)
     const newInventory = JSON.parse(JSON.stringify(inventory));
     
     if (editingItem) {
@@ -70,7 +68,10 @@ function InventoryPage({ character, onUpdateCharacter }) {
       <div className="bg-white p-6 rounded-2xl shadow-lg flex flex-col max-h-[70vh]">
         <div className="space-y-6 overflow-y-auto pr-2">
           <div>
-            <h3 className="text-xl font-semibold text-brand-text border-b pb-2 mb-4">Equipamentos</h3>
+            <h3 className="text-xl font-semibold text-brand-text border-b pb-2 mb-4 flex justify-between items-center">
+                Equipamentos
+                {isGmMode && <span className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded font-bold">GM MODE</span>}
+            </h3>
             <div className="space-y-4">
               {/* Arma Principal */}
               <div className="bg-gray-100 p-4 rounded-lg">
