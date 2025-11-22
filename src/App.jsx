@@ -16,7 +16,7 @@ import ProficiencyChoiceModal from './components/character-sheet/ProficiencyChoi
 import GameMasterPanel from './pages/GameMasterPanel.jsx';
 import InitiativeTracker from './components/combat/InitiativeTracker.jsx';
 import InitiativeRollModal from './components/combat/InitiativeRollModal.jsx';
-import RollTestModal from './components/character-sheet/RollTestModal.jsx';
+import RollTestModal from './components/character-sheet/RollTestModal.jsx'; 
 
 const defaultInventory = {
   weapon: { name: '', damage: '', attribute: '', properties: '' },
@@ -75,7 +75,7 @@ function AppContent() {
     sendInitiative, 
     endTurn, 
     forceRefresh,
-    sendPlayerLog
+    sendPlayerLog 
   } = usePlayerCombat(character, showNotification);
 
   useEffect(() => {
@@ -120,7 +120,6 @@ function AppContent() {
     endTurn();
   };
 
-  // Conecta o log com o hook, passando todos os dados necessários
   const handleSendLog = (actionName, result, damageFormula, weaponCategory, damageBonus) => {
       if (combatData && combatData.status === 'active') {
           sendPlayerLog(actionName, result, damageFormula, weaponCategory, damageBonus);
@@ -135,7 +134,7 @@ function AppContent() {
   
   const handleSaveCharacter = async (data) => { const { data: r } = await supabase.from('characters').insert([{ user_id: user.id, ...data, inventory: defaultInventory }]).select().single(); setCharacter(mapToCamelCase(r)); };
   const handleDeleteCharacter = async () => { await supabase.from('characters').delete().eq('id', character.id); setCharacter(null); };
-  const handleUpdateCharacter = async (u) => { const d = { proficient_attribute: u.proficientAttribute, name: u.name, clan_id: u.clanId, fighting_style: u.fightingStyle, innate_body_id: u.innateBodyId, image_url: u.imageUrl, body_refinement_level: u.bodyRefinementLevel, cultivation_stage: u.cultivationStage, mastery_level: u.mastery_level, attributes: u.attributes, stats: u.stats, techniques: u.techniques, proficient_pericias: u.proficientPericias, inventory: u.inventory }; const { data } = await supabase.from('characters').update(d).eq('id', u.id).select().single(); if(data) setCharacter(mapToCamelCase(data)); };
+  const handleUpdateCharacter = async (u) => { const d = { proficient_attribute: u.proficientAttribute, name: u.name, clan_id: u.clanId, fighting_style: u.fightingStyle, innate_body_id: u.innateBodyId, image_url: u.imageUrl, body_refinement_level: u.bodyRefinement_level, cultivation_stage: u.cultivationStage, mastery_level: u.mastery_level, attributes: u.attributes, stats: u.stats, techniques: u.techniques, proficient_pericias: u.proficientPericias, inventory: u.inventory }; const { data } = await supabase.from('characters').update(d).eq('id', u.id).select().single(); if(data) setCharacter(mapToCamelCase(data)); };
   
   const handleProgressionChange = (updates) => { 
       if (updates.type === 'attribute_increase') { 
@@ -152,18 +151,44 @@ function AppContent() {
   const addRollToHistory = (r) => { 
       setRollHistory(prev => [r, ...prev].slice(0, 15)); 
       setIsHistoryOpen(true); 
-      // Passa o damageBonus (r.damageBonus)
+      // Passa todos os metadados para o log
       handleSendLog(r.name, { total: r.total, roll: r.roll, modifier: r.modifier }, r.damageFormula || null, r.weaponCategory || null, r.damageBonus || 0);
   };
   
   const handleClearHistory = () => { setRollHistory([]); };
   const handleOpenImageTray = () => { fetchUserImages(); setIsImageTrayOpen(true); };
 
+  // --- LÓGICA DE ROLAGEM DE DANO A PARTIR DO HISTÓRICO (JOGADOR) ---
   const handleHistoryDamageRoll = (historyItem) => {
+    let multiplier = 1;
+    
+    // 1. Verifica se foi crítico (d20 = 20)
+    if (historyItem.roll === 20) {
+        const cat = (historyItem.weaponCategory || '').toLowerCase();
+        // 2. Se for pesada e crítico -> Multiplicador x3
+        if (cat === 'pesada' || cat === 'p') {
+            multiplier = 3;
+        } else {
+            multiplier = 2; // Crítico normal
+        }
+    }
+    
+    // 3. Multiplica a quantidade de dados na fórmula (ex: "1d12" vira "3d12")
+    let finalFormula = historyItem.damageFormula;
+    if (multiplier > 1 && finalFormula) {
+        const match = finalFormula.match(/^(\d+)d(\d+)/);
+        if (match) {
+            const count = parseInt(match[1], 10) * multiplier;
+            const faces = match[2];
+            finalFormula = `${count}d${faces}`;
+        }
+    }
+
+    // 4. Abre o modal com a fórmula ajustada e o bônus salvo
     setDamageModalData({
         title: `Dano: ${historyItem.name}`,
-        diceFormula: historyItem.damageFormula,
-        modifier: 0, 
+        diceFormula: finalFormula,
+        modifier: historyItem.damageBonus || 0, // Usa o bônus que foi salvo no momento do ataque
         modifierLabel: 'Bônus'
     });
   };
@@ -224,6 +249,7 @@ function AppContent() {
       <ImageSelectionTray isOpen={isImageTrayOpen} onClose={() => setIsImageTrayOpen(false)} images={userImages} onSelect={handleSelectImage} onUpload={handleImageUpload} />
       <ProficiencyChoiceModal isOpen={isProficiencyModalOpen} onSelect={handleProficiencySelect} />
       
+      {/* MODAL DE DANO DO HISTÓRICO (GLOBAL PARA O APP) */}
       <RollTestModal 
         isOpen={!!damageModalData} 
         onClose={() => setDamageModalData(null)}
@@ -237,7 +263,7 @@ function AppContent() {
                  roll: result.roll, 
                  modifier: result.modifier, 
                  total: result.total,
-                 damageFormula: null 
+                 damageFormula: null // Não repassa fórmula para evitar loop
              });
         }}
       />

@@ -56,16 +56,16 @@ function CombatPage({ character, combatState, onNewTurn, openRollModal, onOpenAt
   const handleBlock = () => openRollModal({ title: 'Teste de Bloqueio', modifier: character.attributes.vigor, modifierLabel: 'Vigor' });
   const handleMovement = () => { if (!combatState.actionsUsed.movement) onActionUsed('movement'); }
 
+  // --- LÓGICA DE ATAQUE DO JOGADOR (Atualizada) ---
   const handleSelectAttackAction = (type, data) => {
     let rollData = {};
     
+    // 1. Normaliza Atributo
     let attrKey = (data.attribute || 'agility').toLowerCase();
-    if (attrKey === 'agilidade') attrKey = 'agility';
-    if (attrKey === 'vigor') attrKey = 'vigor';
-    if (attrKey === 'presença') attrKey = 'presence';
-    if (attrKey === 'disciplina') attrKey = 'discipline';
-    if (attrKey === 'compreensão' || attrKey === 'compreensao') attrKey = 'comprehension';
+    const attrMap = { 'agilidade': 'agility', 'vigor': 'vigor', 'presença': 'presence', 'disciplina': 'discipline', 'compreensão': 'comprehension', 'compreensao': 'comprehension' };
+    if (attrMap[attrKey]) attrKey = attrMap[attrKey];
 
+    // 2. Calcula Bônus
     let bonus = character.attributes[attrKey] || 0;
     if (character.proficientAttribute === attrKey) bonus *= 2;
 
@@ -74,9 +74,10 @@ function CombatPage({ character, combatState, onNewTurn, openRollModal, onOpenAt
 
     if (type === 'weapon') {
         damageFormula = data.damage || '1d4';
-        weaponCategory = data.category; 
+        weaponCategory = data.category; // <--- IMPORTANTE: Pega a categoria (ex: 'pesada')
     }
 
+    // 3. Prepara Modal de Ataque
     switch(type) {
       case 'weapon': rollData = { title: `Ataque com ${data.name}`, modifier: bonus, modifierLabel: ATTRIBUTE_TRANSLATIONS[attrKey] || attrKey }; break;
       case 'technique': rollData = { title: `Técnica: ${data.name}`, modifier: bonus, modifierLabel: ATTRIBUTE_TRANSLATIONS[attrKey] || attrKey }; break;
@@ -89,9 +90,10 @@ function CombatPage({ character, combatState, onNewTurn, openRollModal, onOpenAt
       showNotification("Ataque com Vantagem (Concentração)!", "success");
     }
 
+    // 4. Passa Metadados para o Log
     rollData.metaDamageFormula = damageFormula; 
-    rollData.weaponCategory = weaponCategory;
-    rollData.metaDamageBonus = bonus; 
+    rollData.weaponCategory = weaponCategory; 
+    rollData.metaDamageBonus = bonus; // <--- IMPORTANTE: Passa o bônus para somar no dano depois
 
     rollData.onRollConfirmed = () => {
       handleActionUsed('major');
