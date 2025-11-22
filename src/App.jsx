@@ -16,7 +16,7 @@ import ProficiencyChoiceModal from './components/character-sheet/ProficiencyChoi
 import GameMasterPanel from './pages/GameMasterPanel.jsx';
 import InitiativeTracker from './components/combat/InitiativeTracker.jsx';
 import InitiativeRollModal from './components/combat/InitiativeRollModal.jsx';
-import RollTestModal from './components/character-sheet/RollTestModal.jsx'; 
+import RollTestModal from './components/character-sheet/RollTestModal.jsx';
 
 const defaultInventory = {
   weapon: { name: '', damage: '', attribute: '', properties: '' },
@@ -55,7 +55,16 @@ function AppContent() {
   const [character, setCharacter] = useState(null);
   const [characterLoading, setCharacterLoading] = useState(true);
   const [notification, setNotification] = useState(null);
-  const [rollHistory, setRollHistory] = useState(() => JSON.parse(localStorage.getItem('rollHistory') || '[]'));
+  
+  // Inicializa lendo do LocalStorage
+  const [rollHistory, setRollHistory] = useState(() => {
+      try {
+          const saved = localStorage.getItem('rollHistory');
+          return saved ? JSON.parse(saved) : [];
+      } catch (e) {
+          return [];
+      }
+  });
   
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isImageTrayOpen, setIsImageTrayOpen] = useState(false);
@@ -66,6 +75,11 @@ function AppContent() {
   const [damageModalData, setDamageModalData] = useState(null);
 
   const showNotification = (message, type = 'success') => setNotification({ message, type });
+
+  // --- CORREÇÃO: SALVAR NO LOCALSTORAGE SEMPRE QUE MUDAR ---
+  useEffect(() => {
+      localStorage.setItem('rollHistory', JSON.stringify(rollHistory));
+  }, [rollHistory]);
 
   // HOOK DE COMBATE DO JOGADOR
   const { 
@@ -158,22 +172,20 @@ function AppContent() {
   const handleClearHistory = () => { setRollHistory([]); };
   const handleOpenImageTray = () => { fetchUserImages(); setIsImageTrayOpen(true); };
 
-  // --- LÓGICA DE ROLAGEM DE DANO A PARTIR DO HISTÓRICO (JOGADOR) ---
+  // --- Rolar Dano a partir do Histórico ---
   const handleHistoryDamageRoll = (historyItem) => {
     let multiplier = 1;
     
-    // 1. Verifica se foi crítico (d20 = 20)
+    // Regra de crítico no histórico do jogador
     if (historyItem.roll === 20) {
         const cat = (historyItem.weaponCategory || '').toLowerCase();
-        // 2. Se for pesada e crítico -> Multiplicador x3
         if (cat === 'pesada' || cat === 'p') {
             multiplier = 3;
         } else {
-            multiplier = 2; // Crítico normal
+            multiplier = 2;
         }
     }
     
-    // 3. Multiplica a quantidade de dados na fórmula (ex: "1d12" vira "3d12")
     let finalFormula = historyItem.damageFormula;
     if (multiplier > 1 && finalFormula) {
         const match = finalFormula.match(/^(\d+)d(\d+)/);
@@ -184,11 +196,10 @@ function AppContent() {
         }
     }
 
-    // 4. Abre o modal com a fórmula ajustada e o bônus salvo
     setDamageModalData({
         title: `Dano: ${historyItem.name}`,
         diceFormula: finalFormula,
-        modifier: historyItem.damageBonus || 0, // Usa o bônus que foi salvo no momento do ataque
+        modifier: historyItem.damageBonus || 0, 
         modifierLabel: 'Bônus'
     });
   };
@@ -199,7 +210,11 @@ function AppContent() {
   return (
     <div className="relative min-h-screen">
       {combatData?.status === 'active' && (
-        <InitiativeTracker turnOrder={combatData.turn_order} currentIndex={combatData.current_turn_index} />
+        <InitiativeTracker 
+            turnOrder={combatData.turn_order} 
+            currentIndex={combatData.current_turn_index} 
+            isDrawerOpen={isHistoryOpen} // Passa estado para animar o tracker
+        />
       )}
       
       {profile?.role === 'gm' ? (
@@ -249,7 +264,6 @@ function AppContent() {
       <ImageSelectionTray isOpen={isImageTrayOpen} onClose={() => setIsImageTrayOpen(false)} images={userImages} onSelect={handleSelectImage} onUpload={handleImageUpload} />
       <ProficiencyChoiceModal isOpen={isProficiencyModalOpen} onSelect={handleProficiencySelect} />
       
-      {/* MODAL DE DANO DO HISTÓRICO (GLOBAL PARA O APP) */}
       <RollTestModal 
         isOpen={!!damageModalData} 
         onClose={() => setDamageModalData(null)}
@@ -263,7 +277,7 @@ function AppContent() {
                  roll: result.roll, 
                  modifier: result.modifier, 
                  total: result.total,
-                 damageFormula: null // Não repassa fórmula para evitar loop
+                 damageFormula: null 
              });
         }}
       />

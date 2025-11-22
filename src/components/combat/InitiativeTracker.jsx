@@ -1,7 +1,7 @@
 import React from 'react';
 import { UserIcon, ChevronDoubleRightIcon } from '@heroicons/react/24/solid';
 
-function InitiativeTracker({ turnOrder, currentIndex }) {
+function InitiativeTracker({ turnOrder, currentIndex, isDrawerOpen }) {
   if (!turnOrder || turnOrder.length === 0) {
     return null;
   }
@@ -22,8 +22,14 @@ function InitiativeTracker({ turnOrder, currentIndex }) {
     }
   }
 
+  // Define a posição baseada se a gaveta está aberta ou não
+  // 320px (gaveta) + 20px (margem) = 340px
+  const positionClass = isDrawerOpen ? 'right-[340px]' : 'right-4';
+
   return (
-    <div className="fixed top-4 right-4 z-50 bg-white/90 backdrop-blur-md p-3 rounded-xl shadow-2xl border-2 border-purple-100">
+    <div 
+      className={`fixed top-4 ${positionClass} z-50 bg-white/90 backdrop-blur-md p-3 rounded-xl shadow-2xl border-2 border-purple-100 transition-all duration-300 ease-in-out`}
+    >
       <h4 className="font-bold text-xs text-gray-400 uppercase tracking-wider mb-2 text-center">
         {isSmallList ? "Ordem de Turno" : "Iniciativa"}
       </h4>
