@@ -7,10 +7,13 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error("Supabase URL and Anon Key are required.");
 }
 
+const PROJECT_STORAGE_KEY = 'jianghu_auth_token_v1';
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: true
+    detectSessionInUrl: true,
+    storageKey: PROJECT_STORAGE_KEY,
   }
 });
