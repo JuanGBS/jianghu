@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { supabase } from '../services/supabaseClient';
 import { CLANS_DATA } from '../data/clans';
 import { ARMOR_TYPES } from '../data/armorTypes';
 import { FIGHTING_STYLES, BODY_REFINEMENT_LEVELS, CULTIVATION_STAGES, MASTERY_LEVELS, ATTRIBUTE_PERICIAS } from '../data/gameData';
@@ -21,14 +22,6 @@ import MinorActionModal from '../components/character-sheet/MinorActionModal';
 import { useAuth } from '../context/AuthContext';
 import QuickStatInput from '../components/ui/QuickStatInput.jsx';
 
-function StatInput({ value, onSave, className, placeholder }) {
-  const [localValue, setLocalValue] = useState(value);
-  useEffect(() => { setLocalValue(value); }, [value]);
-  const handleBlur = () => { if (String(localValue) !== String(value)) { onSave(localValue); } };
-  const handleKeyDown = (e) => { if (e.key === 'Enter') { e.target.blur(); } };
-  return <input type="number" value={localValue} onChange={(e) => setLocalValue(e.target.value)} onBlur={handleBlur} onKeyDown={handleKeyDown} className={`w-20 text-center bg-transparent border-b-2 border-transparent hover:border-gray-300 focus:border-purple-500 focus:outline-none transition-colors appearance-none m-0 p-0 ${className}`} placeholder={placeholder} />;
-}
-
 function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotification, addRollToHistory, onOpenImageTray, onTrain, onBack, combatData, onEndTurn, isGmMode = false }) {
   const { signOut } = useAuth();
   const clan = CLANS_DATA[character.clanId] || { name: 'Clã Desconhecido', baseHp: 5, passiveAbility: { name: '-', description: '-' } };
@@ -46,6 +39,7 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
   const [isAttackModalOpen, setIsAttackModalOpen] = useState(false);
   const [isMinorActionModalOpen, setIsMinorActionModalOpen] = useState(false);
 
+  // Cálculos de Status
   const inventory = character.inventory || { armor: { type: 'none' } };
   const armorType = inventory.armor?.type || 'none';
   const selectedArmor = ARMOR_TYPES.find(a => a.id === armorType) || ARMOR_TYPES.find(a => a.id === 'none');
@@ -98,24 +92,45 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
     showNotification("Ações resetadas manualmente.", "success");
   };
 
-  const handleSelectAttackAction = (type, data) => {
-    let rollData = {};
-    const attributeKey = (data.attribute?.toLowerCase() in character.attributes) ? data.attribute.toLowerCase() : 'agility';
-    let bonus = character.attributes[attributeKey];
-    if (character.proficientAttribute === attributeKey) bonus *= 2;
+  // --- FUNÇÃO DE CÁLCULO (RESTAURADA) ---
+  const calculateRollParams = (rawAttribute) => {
+    let attrKey = (rawAttribute || 'agility').toLowerCase();
+    const map = { 'agilidade': 'agility', 'vigor': 'vigor', 'presença': 'presence', 'disciplina': 'discipline', 'compreensão': 'comprehension', 'compreensao': 'comprehension' };
+    if (map[attrKey]) attrKey = map[attrKey];
+    
+    let bonus = character.attributes[attrKey] || 0;
+    if (character.proficientAttribute === attrKey) bonus *= 2;
 
+    return { 
+        bonus, 
+        label: ATTRIBUTE_TRANSLATIONS[attrKey] || attrKey 
+    };
+  };
+
+  // --- HANDLER PARA O MODAL DE AÇÃO MAIOR (RESTAURADO) ---
+  const handleSelectAttackAction = (type, data) => {
+    const { bonus, label } = calculateRollParams(data.attribute);
+    let rollData = {};
     let damageFormula = null;
     let weaponCategory = null;
-    
+
     if (type === 'weapon') {
         damageFormula = data.damage || '1d4';
-        weaponCategory = data.category;
+        weaponCategory = data.category; 
+    } else if (type === 'technique') {
+        damageFormula = data.damage; 
     }
 
     switch(type) {
-      case 'weapon': rollData = { title: `Ataque com ${data.name}`, modifier: bonus, modifierLabel: data.attribute }; break;
-      case 'technique': rollData = { title: `Técnica: ${data.name}`, modifier: bonus, modifierLabel: data.attribute }; break;
-      case 'maneuver': rollData = { title: `Manobra: ${data.name}`, modifier: bonus, modifierLabel: ATTRIBUTE_TRANSLATIONS[data.attribute] }; break;
+      case 'weapon': 
+        rollData = { title: `Ataque com ${data.name}`, modifier: bonus, modifierLabel: label }; 
+        break;
+      case 'technique': 
+        rollData = { title: `Técnica: ${data.name}`, modifier: bonus, modifierLabel: label }; 
+        break;
+      case 'maneuver': 
+        rollData = { title: `Manobra: ${data.name}`, modifier: bonus, modifierLabel: ATTRIBUTE_TRANSLATIONS[data.attribute] || data.attribute }; 
+        break;
       default: return;
     }
     
@@ -126,7 +141,7 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
 
     rollData.metaDamageFormula = damageFormula; 
     rollData.weaponCategory = weaponCategory;
-    rollData.metaDamageBonus = bonus; // Passa o bônus para o modal
+    rollData.metaDamageBonus = bonus; 
 
     rollData.onRollConfirmed = () => {
       handleActionUsed('major');
@@ -135,39 +150,92 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
     openRollModal(rollData);
   };
 
-  const handleSelectMinorAction = (action) => {
-    if (action.id === 'second_attack') {
+  // --- HANDLER PARA O MODAL DE AÇÃO MENOR (RESTAURADO E CORRIGIDO) ---
+  const handleSelectMinorAction = (data) => {
+    
+    // 1. Técnicas do Banco de Dados
+    if (data.isTechnique) {
+        // NOVA LÓGICA: Se requiresRoll for true, rola. Caso contrário (null/false), não rola.
+        const shouldRoll = data.requiresRoll === true;
+
+        if (shouldRoll) {
+             const { bonus, label } = calculateRollParams(data.attribute);
+             
+             openRollModal({ 
+                title: `Técnica (Menor): ${data.name}`, 
+                modifier: bonus, 
+                modifierLabel: label,
+                metaDamageFormula: data.damage, 
+                metaDamageBonus: bonus,
+                onRollConfirmed: () => handleActionUsed('minor') 
+            });
+        } else {
+            // Apenas gasta a ação e notifica
+            handleActionUsed('minor');
+            showNotification(`Técnica "${data.name}" utilizada!`, 'success');
+        }
+        return;
+    }
+
+    // 2. Segundo Ataque (Arma Leve)
+    if (data.id === 'second_attack') {
       const weapon = character.inventory.weapon;
-      let bonus = character.attributes.agility;
-      if (character.proficientAttribute === 'agility') bonus *= 2;
-      
+      const { bonus, label } = calculateRollParams('agility');
       const damageFormula = weapon.damage || '1d4';
 
       openRollModal({ 
           title: `Segundo Ataque (${weapon.name})`, 
           modifier: bonus, 
-          modifierLabel: 'Agilidade', 
+          modifierLabel: label, 
           metaDamageFormula: damageFormula, 
+          metaDamageBonus: bonus,
           onRollConfirmed: () => handleActionUsed('minor') 
       });
       return;
     }
 
-    if (action.rollable) {
-      const { skill, attribute } = action;
-      let bonus = character.attributes[attribute];
-      if (character.proficientAttribute === attribute) bonus *= 2;
-      openRollModal({ title: `Teste de ${skill}`, modifier: bonus, modifierLabel: ATTRIBUTE_TRANSLATIONS[attribute], onRollConfirmed: () => handleActionUsed('minor') });
-    } else if (action.id === 'focused_attack') {
+    // 3. Ataque Concentrado
+    if (data.id === 'focused_attack') {
       setCombatState(prevState => ({ ...prevState, isConcentrated: true }));
       handleActionUsed('minor');
       showNotification('Concentrado! Próximo ataque com Vantagem.', 'success');
-    } else {
-      handleActionUsed('minor');
-      showNotification(`Ação "${action.name}" realizada!`, 'success');
+      return;
     }
+
+    // 4. Ações com Rolagem Genérica
+    if (data.rollable) {
+      const { bonus, label } = calculateRollParams(data.attribute);
+      openRollModal({ 
+          title: `Teste de ${data.skill || 'Atributo'}`, 
+          modifier: bonus, 
+          modifierLabel: label, 
+          onRollConfirmed: () => handleActionUsed('minor') 
+      });
+      return;
+    } 
+    
+    // 5. Outras ações
+    handleActionUsed('minor');
+    showNotification(`Ação "${data.name}" realizada!`, 'success');
   };
 
+  // --- FUNÇÕES DE EDIÇÃO E SALVAMENTO ---
+
+  const handleStatChange = (statKey, newValue) => {
+    const validatedValue = Math.max(0, newValue);
+    const updatedCharacter = { ...character, stats: { ...character.stats, [statKey]: validatedValue } };
+    onUpdateCharacter(updatedCharacter);
+  };
+  
+  const handleManualStatEdit = (statKey, newValue) => {
+      if (!isGmMode) return;
+      const val = parseInt(newValue);
+      if (!isNaN(val)) {
+          const newStats = { ...character.stats, [statKey]: val };
+          onUpdateCharacter({ ...character, stats: newStats });
+      }
+  };
+  
   const handleAttributeEdit = (attrKey, newValue) => {
     if (!isGmMode) return;
     const val = parseInt(newValue);
@@ -177,47 +245,85 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
     }
   };
 
-  const handleManualStatEdit = (statKey, newValue) => {
-      if (!isGmMode) return;
-      const val = parseInt(newValue);
-      if (!isNaN(val)) {
-          const newStats = { ...character.stats, [statKey]: val };
-          onUpdateCharacter({ ...character, stats: newStats });
-      }
-  };
+  // --- CRUD TÉCNICAS (SUPABASE) ---
+  const handleTechniquesUpdate = async (techniqueData) => {
+    try {
+        if (editingTechnique) {
+            const { data, error } = await supabase
+                .from('techniques')
+                .update(techniqueData)
+                .eq('id', editingTechnique.technique.id)
+                .select()
+                .single();
 
-  const isFormModalOpen = isCreating || editingTechnique !== null;
-  const anyModalIsOpen = isFormModalOpen || isDeleteModalOpen || rollModalData !== null || isAttackModalOpen || isMinorActionModalOpen;
-  
-  const handleStatChange = (statKey, newValue) => {
-    const validatedValue = Math.max(0, newValue);
-    const updatedCharacter = { ...character, stats: { ...character.stats, [statKey]: validatedValue } };
-    onUpdateCharacter(updatedCharacter);
-  };
-  
-  const handleTechniquesUpdate = (techniqueData) => {
-    let updatedTechniques;
-    if (editingTechnique) {
-      updatedTechniques = (character.techniques || []).map((t, i) => i === editingTechnique.index ? techniqueData : t);
-    } else {
-      updatedTechniques = [...(character.techniques || []), techniqueData];
+            if (error) throw error;
+
+            const newTechniques = character.techniques.map(t => t.id === editingTechnique.technique.id ? { ...t, ...mapTechFromDB(data) } : t);
+            onUpdateCharacter({ ...character, techniques: newTechniques });
+            showNotification('Técnica atualizada!', 'success');
+
+        } else {
+            const { data, error } = await supabase
+                .from('techniques')
+                .insert(techniqueData)
+                .select()
+                .single();
+
+            if (error) throw error;
+            
+            const newTechniques = [...(character.techniques || []), mapTechFromDB(data)];
+            onUpdateCharacter({ ...character, techniques: newTechniques });
+            showNotification('Técnica criada!', 'success');
+        }
+    } catch (err) {
+        console.error(err);
+        showNotification('Erro ao salvar técnica.', 'error');
     }
-    onUpdateCharacter({ ...character, techniques: updatedTechniques });
   };
   
-  const handleTechniqueDelete = (indexToDelete) => {
-    const updatedTechniques = (character.techniques || []).filter((_, index) => index !== indexToDelete);
-    onUpdateCharacter({ ...character, techniques: updatedTechniques });
+  const mapTechFromDB = (t) => ({
+      id: t.id,
+      name: t.name,
+      type: t.type,
+      action: t.action,
+      cost: t.cost,
+      damage: t.damage,
+      attribute: t.attribute,
+      effect: t.effect,
+      requirements: t.requirements,
+      requiresRoll: t.requires_roll,
+      concentration: t.concentration
+  });
+
+  const handleTechniqueDelete = async (indexToDelete) => {
+    const techToDelete = character.techniques[indexToDelete];
+    if (!techToDelete || !techToDelete.id) return;
+
+    try {
+        const { error } = await supabase.from('techniques').delete().eq('id', techToDelete.id);
+        if (error) throw error;
+
+        const updatedTechniques = character.techniques.filter((_, index) => index !== indexToDelete);
+        onUpdateCharacter({ ...character, techniques: updatedTechniques });
+        showNotification('Técnica removida.', 'success');
+    } catch (err) {
+        console.error(err);
+        showNotification('Erro ao remover técnica.', 'error');
+    }
   };
 
   const openCreateModal = () => setIsCreating(true);
   const openEditModal = (technique, index) => setEditingTechnique({ technique, index });
   const closeFormModal = () => { setIsCreating(false); setEditingTechnique(null); };
   const handleConfirmDelete = () => { onDelete(); setIsDeleteModalOpen(false); };
+  
   const openRollModal = (data) => setRollModalData(data);
   const closeRollModal = () => setRollModalData(null);
+  
   const handleMouseEnter = (attributeKey) => { clearTimeout(hoverTimeoutRef.current); setHoveredAttribute(attributeKey); };
   const handleMouseLeave = () => { hoverTimeoutRef.current = setTimeout(() => { setHoveredAttribute(null); }, 200); };
+
+  // --- RENDERIZAÇÃO ---
 
   const RightColumnContent = () => {
     if (activeTab === 'techniques') return (<TechniquesPage character={character} onDeleteTechnique={handleTechniqueDelete} openCreateModal={openCreateModal} openEditModal={openEditModal} />);
@@ -228,6 +334,7 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
           combatState={combatState}
           onNewTurn={handleNewTurn}
           openRollModal={openRollModal}
+          // Passa as funções de abertura de modal locais
           onOpenAttackModal={() => setIsAttackModalOpen(true)}
           onOpenMinorActionModal={() => setIsMinorActionModalOpen(true)}
           onActionUsed={handleActionUsed}
@@ -238,65 +345,46 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
       );
     if (activeTab === 'progression') return <ProgressionPage character={character} onTrain={onTrain} showNotification={showNotification} isGmMode={isGmMode} onUpdateCharacter={onUpdateCharacter} />;
     return (
-      <div className="w-full self-start flex flex-col space-y-6">
-        <div className="bg-white p-6 rounded-2xl shadow-lg w-full">
-            <h3 className="text-xl font-semibold text-brand-text">Habilidade Passiva</h3>
-            <div className="bg-gray-100 p-3 rounded-lg mt-2">
-              <h4 className="font-bold text-purple-700">{clan.passiveAbility.name}</h4>
-              <p className="text-sm text-gray-600 mt-1">{clan.passiveAbility.description}</p>
+        <div className="w-full self-start flex flex-col space-y-6">
+            <div className="bg-white p-6 rounded-2xl shadow-lg w-full">
+                <h3 className="text-xl font-semibold text-brand-text">Habilidade Passiva</h3>
+                <div className="bg-gray-100 p-3 rounded-lg mt-2">
+                <h4 className="font-bold text-purple-700">{clan.passiveAbility.name}</h4>
+                <p className="text-sm text-gray-600 mt-1">{clan.passiveAbility.description}</p>
+                </div>
             </div>
+             <div className="bg-white p-6 rounded-2xl shadow-lg w-full flex flex-col">
+                  <div>
+                    <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-xl font-semibold text-brand-text">Status de Combate</h3>
+                    {isGmMode && <span className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded font-bold">Editável</span>}
+                    </div>
+                    <div className="bg-gray-100 p-4 rounded-lg flex justify-around text-center gap-2">
+                         <div className="flex flex-col items-center">
+                            <span className="text-sm text-gray-500 mb-1 font-semibold">PV</span>
+                            {isGmMode ? <QuickStatInput value={character.stats.currentHp} maxValue={finalMaxHp} onSave={(val) => handleManualStatEdit('currentHp', val)} className="text-2xl font-bold text-gray-700 mb-1 w-20 text-center bg-transparent" /> : <EditableStat label="" currentValue={character.stats.currentHp} maxValue={finalMaxHp} onSave={(newValue) => handleStatChange('currentHp', newValue)} colorClass="text-green-600" />}
+                         </div>
+                         <div className="flex flex-col items-center">
+                            <span className="text-sm text-gray-500 mb-1 font-semibold">Chi</span>
+                            {isGmMode ? <QuickStatInput value={character.stats.currentChi} onSave={(val) => handleManualStatEdit('currentChi', val)} className="text-2xl font-bold text-gray-700 mb-1 w-20 text-center bg-transparent" /> : <EditableStat label="" currentValue={character.stats.currentChi} maxValue={finalMaxChi} onSave={(newValue) => handleStatChange('currentChi', newValue)} colorClass="text-blue-500" />}
+                         </div>
+                         <div className="flex flex-col items-center">
+                            <span className="text-sm text-gray-500 mb-1 font-semibold">CA</span>
+                            <EditableStat label="" currentValue={finalArmorClass} onSave={() => {}} colorClass="text-red-600" />
+                         </div>
+                    </div>
+                  </div>
+                 <div className="flex justify-between items-center pt-4 mt-auto">
+                    <button onClick={() => setIsDeleteModalOpen(true)} className="text-center text-sm text-gray-500 hover:text-red-600 font-semibold">Apagar Personagem</button>
+                    {!onBack && (<button onClick={signOut} className="text-center text-sm text-gray-500 hover:text-blue-600 font-semibold">Logout</button>)}
+                 </div>
+             </div>
         </div>
-        <div className="bg-white p-6 rounded-2xl shadow-lg w-full flex flex-col">
-          <div>
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-semibold text-brand-text">Status de Combate</h3>
-              {isGmMode && <span className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded font-bold">Editável</span>}
-            </div>
-            <div className="bg-gray-100 p-4 rounded-lg flex justify-around text-center gap-2">
-              <div className="flex flex-col items-center">
-                <span className="text-sm text-gray-500 mb-1 font-semibold">PV</span>
-                {isGmMode ? (
-                    <div className="flex flex-col items-center">
-                        <QuickStatInput value={character.stats.currentHp} maxValue={finalMaxHp} onSave={(val) => handleManualStatEdit('currentHp', val)} className="text-2xl font-bold text-gray-700 mb-1 w-20 text-center bg-transparent" />
-                        <div className="w-12 border-t border-gray-300 my-1"></div>
-                        <QuickStatInput value={finalMaxHp} onSave={(val) => handleManualStatEdit('manualMaxHp', val)} className="text-lg font-bold text-green-600 w-20 text-center bg-transparent" />
-                    </div>
-                ) : (
-                    <EditableStat label="" currentValue={character.stats.currentHp} maxValue={finalMaxHp} onSave={(newValue) => handleStatChange('currentHp', newValue)} colorClass="text-green-600" />
-                )}
-              </div>
-              <div className="flex flex-col items-center">
-                <span className="text-sm text-gray-500 mb-1 font-semibold">Chi</span>
-                {isGmMode ? (
-                    <div className="flex flex-col items-center">
-                        <QuickStatInput value={character.stats.currentChi} onSave={(val) => handleManualStatEdit('currentChi', val)} className="text-2xl font-bold text-gray-700 mb-1 w-20 text-center bg-transparent" />
-                        <div className="w-12 border-t border-gray-300 my-1"></div>
-                        <QuickStatInput value={finalMaxChi} onSave={(val) => handleManualStatEdit('manualMaxChi', val)} className="text-lg font-bold text-blue-600 w-20 text-center bg-transparent" />
-                    </div>
-                ) : (
-                    <EditableStat label="" currentValue={character.stats.currentChi} maxValue={finalMaxChi} onSave={(newValue) => handleStatChange('currentChi', newValue)} colorClass="text-blue-500" />
-                )}
-              </div>
-              <div className="flex flex-col items-center">
-                <span className="text-sm text-gray-500 mb-1 font-semibold">CA</span>
-                {isGmMode ? (
-                    <div className="flex flex-col items-center justify-center h-full mt-2">
-                        <QuickStatInput value={finalArmorClass} onSave={(val) => handleManualStatEdit('manualArmorClass', val)} className="text-3xl font-bold text-red-600 w-20 text-center bg-transparent" />
-                    </div>
-                ) : (
-                    <EditableStat label="" currentValue={finalArmorClass} onSave={() => {}} colorClass="text-red-600" />
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="flex justify-between items-center pt-4 mt-auto">
-            <button onClick={() => setIsDeleteModalOpen(true)} className="text-center text-sm text-gray-500 hover:text-red-600 font-semibold">Apagar Personagem</button>
-            {!onBack && (<button onClick={signOut} className="text-center text-sm text-gray-500 hover:text-blue-600 font-semibold">Logout</button>)}
-          </div>
-        </div>
-      </div>
     );
   };
+
+  const isFormModalOpen = isCreating || editingTechnique !== null;
+  const anyModalIsOpen = isFormModalOpen || isDeleteModalOpen || rollModalData !== null || isAttackModalOpen || isMinorActionModalOpen;
 
   return (
     <div className="container mx-auto p-4 md:p-8 min-h-screen flex flex-col">
@@ -314,9 +402,9 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-grow">
         <div className="lg:col-span-1 bg-white p-8 rounded-2xl shadow-lg space-y-4 w-full self-start">
-          <div><h2 className="text-4xl font-bold text-brand-text">{character.name}</h2><p className="text-lg text-gray-500">{clan.name}</p></div>
-          <hr />
-          <div>
+            <div><h2 className="text-4xl font-bold text-brand-text">{character.name}</h2><p className="text-lg text-gray-500">{clan.name}</p></div>
+            <hr />
+            <div>
             <h3 className="text-xl font-semibold text-brand-text flex justify-between items-center">
                 Atributos Finais
                 {isGmMode && <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded border border-yellow-200">Modo Edição</span>}
@@ -334,20 +422,15 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
                         {isProficient && <StarIcon className="h-5 w-5 text-yellow-500" />}
                         <span className="font-bold text-gray-700">{ATTRIBUTE_TRANSLATIONS[key]}</span>
                       </div>
-                      
                       {isGmMode ? (
                           <QuickStatInput value={value} onSave={(val) => handleAttributeEdit(key, val)} className="w-16 text-right text-2xl font-bold text-purple-700 bg-transparent" />
                       ) : (
-                          <button 
-                            className="text-2xl font-bold text-purple-700 hover:scale-110 transition-transform"
-                            onClick={() => openRollModal({ title: `Teste de ${ATTRIBUTE_TRANSLATIONS[key]}`, modifier: attributeBonus, modifierLabel: ATTRIBUTE_TRANSLATIONS[key] })}
-                          >
+                          <button className="text-2xl font-bold text-purple-700 hover:scale-110 transition-transform" onClick={() => openRollModal({ title: `Teste de ${ATTRIBUTE_TRANSLATIONS[key]}`, modifier: attributeBonus, modifierLabel: ATTRIBUTE_TRANSLATIONS[key] })}>
                             {value}
                           </button>
                       )}
                     </div>
-                    
-                    <div className={`absolute left-full top-0 ml-4 w-64 bg-white p-4 rounded-lg shadow-xl border z-[60] transition-all duration-200 ${hoveredAttribute === key ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-95 pointer-events-none'}`}>
+                     <div className={`absolute left-full top-0 ml-4 w-64 bg-white p-4 rounded-lg shadow-xl border z-[60] transition-all duration-200 ${hoveredAttribute === key ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-95 pointer-events-none'}`}>
                       <h5 className="font-bold text-brand-text border-b pb-2 mb-2">Perícias de {ATTRIBUTE_TRANSLATIONS[key]}</h5>
                       <div className="space-y-1 text-sm">
                         {(ATTRIBUTE_PERICIAS[key] || []).map(periciaName => {
@@ -384,9 +467,21 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
       </div>
       
       {!anyModalIsOpen && <SheetNavigation activeTab={activeTab} setActiveTab={setActiveTab} />}
+      
+      {/* Modais de Ação (Agora com as funções definidas) */}
       <AttackChoiceModal isOpen={isAttackModalOpen} onClose={() => setIsAttackModalOpen(false)} character={character} onSelectAction={handleSelectAttackAction} />
       <MinorActionModal isOpen={isMinorActionModalOpen} onClose={() => setIsMinorActionModalOpen(false)} character={character} onSelectAction={handleSelectMinorAction} />
-      <Modal isOpen={isFormModalOpen} onClose={closeFormModal}><TechniqueCreatorForm onSave={(data) => { handleTechniquesUpdate(data); closeFormModal(); }} onCancel={closeFormModal} initialData={editingTechnique?.technique} /></Modal>
+      
+      <Modal isOpen={isFormModalOpen} onClose={closeFormModal}>
+          <TechniqueCreatorForm 
+            onSave={(data) => { handleTechniquesUpdate(data); closeFormModal(); }} 
+            onCancel={closeFormModal} 
+            initialData={editingTechnique?.technique} 
+            characterId={character.id}
+            userId={character.userId}
+          />
+      </Modal>
+
       <ConfirmationModal isOpen={isDeleteModalOpen} onClose={() => setIsDeleteModalOpen(false)} onConfirm={handleConfirmDelete} title="Apagar Personagem?" message="Esta ação é permanente. Deseja apagar esta ficha?" />
       
       <RollTestModal 
@@ -402,16 +497,11 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
               roll: result.roll, 
               modifier: result.modifier, 
               total: result.total,
-              
               damageFormula: rollModalData.metaDamageFormula || rollModalData.diceFormula || null,
               weaponCategory: rollModalData.weaponCategory || null,
-              
               damageBonus: rollModalData.metaDamageBonus !== undefined ? rollModalData.metaDamageBonus : result.modifier
           });
-          
-          if (rollModalData.onRollConfirmed) {
-            rollModalData.onRollConfirmed();
-          }
+          if (rollModalData.onRollConfirmed) { rollModalData.onRollConfirmed(); }
         }}
       />
     </div>

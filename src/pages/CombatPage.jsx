@@ -56,50 +56,125 @@ function CombatPage({ character, combatState, onNewTurn, openRollModal, onOpenAt
   const handleBlock = () => openRollModal({ title: 'Teste de Bloqueio', modifier: character.attributes.vigor, modifierLabel: 'Vigor' });
   const handleMovement = () => { if (!combatState.actionsUsed.movement) onActionUsed('movement'); }
 
-  // --- LÓGICA DE ATAQUE DO JOGADOR (Atualizada) ---
-  const handleSelectAttackAction = (type, data) => {
-    let rollData = {};
+  const calculateRollParams = (rawAttribute) => {
+    let attrKey = (rawAttribute || 'agility').toLowerCase();
+    const map = { 'agilidade': 'agility', 'vigor': 'vigor', 'presença': 'presence', 'disciplina': 'discipline', 'compreensão': 'comprehension', 'compreensao': 'comprehension' };
+    if (map[attrKey]) attrKey = map[attrKey];
     
-    // 1. Normaliza Atributo
-    let attrKey = (data.attribute || 'agility').toLowerCase();
-    const attrMap = { 'agilidade': 'agility', 'vigor': 'vigor', 'presença': 'presence', 'disciplina': 'discipline', 'compreensão': 'comprehension', 'compreensao': 'comprehension' };
-    if (attrMap[attrKey]) attrKey = attrMap[attrKey];
-
-    // 2. Calcula Bônus
     let bonus = character.attributes[attrKey] || 0;
     if (character.proficientAttribute === attrKey) bonus *= 2;
 
+    return { 
+        bonus, 
+        label: ATTRIBUTE_TRANSLATIONS[attrKey] || attrKey 
+    };
+  };
+
+  const handleSelectAttackAction = (type, data) => {
+    const { bonus, label } = calculateRollParams(data.attribute);
+    let rollData = {};
     let damageFormula = null;
     let weaponCategory = null;
 
     if (type === 'weapon') {
         damageFormula = data.damage || '1d4';
-        weaponCategory = data.category; // <--- IMPORTANTE: Pega a categoria (ex: 'pesada')
+        weaponCategory = data.category; 
+    } else if (type === 'technique') {
+        damageFormula = data.damage; 
     }
 
-    // 3. Prepara Modal de Ataque
     switch(type) {
-      case 'weapon': rollData = { title: `Ataque com ${data.name}`, modifier: bonus, modifierLabel: ATTRIBUTE_TRANSLATIONS[attrKey] || attrKey }; break;
-      case 'technique': rollData = { title: `Técnica: ${data.name}`, modifier: bonus, modifierLabel: ATTRIBUTE_TRANSLATIONS[attrKey] || attrKey }; break;
-      case 'maneuver': rollData = { title: `Manobra: ${data.name}`, modifier: bonus, modifierLabel: ATTRIBUTE_TRANSLATIONS[data.attribute] || data.attribute }; break;
+      case 'weapon': 
+        rollData = { title: `Ataque com ${data.name}`, modifier: bonus, modifierLabel: label }; 
+        break;
+      case 'technique': 
+        rollData = { title: `Técnica: ${data.name}`, modifier: bonus, modifierLabel: label }; 
+        break;
+      case 'maneuver': 
+        rollData = { title: `Manobra: ${data.name}`, modifier: bonus, modifierLabel: ATTRIBUTE_TRANSLATIONS[data.attribute] || data.attribute }; 
+        break;
       default: return;
     }
     
     if (combatState.isConcentrated) {
       rollData.mode = 'advantage';
-      showNotification("Ataque com Vantagem (Concentração)!", "success");
     }
 
-    // 4. Passa Metadados para o Log
     rollData.metaDamageFormula = damageFormula; 
-    rollData.weaponCategory = weaponCategory; 
-    rollData.metaDamageBonus = bonus; // <--- IMPORTANTE: Passa o bônus para somar no dano depois
+    rollData.weaponCategory = weaponCategory;
+    rollData.metaDamageBonus = bonus; 
 
     rollData.onRollConfirmed = () => {
       handleActionUsed('major');
       setCombatState(prevState => ({ ...prevState, isConcentrated: false }));
     };
     openRollModal(rollData);
+  };
+
+  // --- AÇÃO MENOR CORRIGIDA (USA O NULL CHECK) ---
+  const handleSelectMinorAction = (data) => {
+    
+    if (data.isTechnique) {
+        // A LÓGICA CHAVE: Se o campo for TRUE, rola. Se for NULL, não rola.
+        const shouldRoll = data.requiresRoll === true;
+
+        if (shouldRoll) {
+             const { bonus, label } = calculateRollParams(data.attribute);
+             
+             openRollModal({ 
+                title: `Técnica (Menor): ${data.name}`, 
+                modifier: bonus, 
+                modifierLabel: label,
+                
+                // Metadados para histórico
+                metaDamageFormula: data.damage, 
+                metaDamageBonus: bonus,
+                
+                onRollConfirmed: () => handleActionUsed('minor') 
+            });
+        } else {
+            // Técnica sem rolagem (Buff)
+            handleActionUsed('minor');
+            // showNotification(`Técnica ${data.name} utilizada!`, 'success'); // Opcional
+        }
+        return;
+    }
+
+    if (data.id === 'second_attack') {
+      const weapon = character.inventory.weapon;
+      const { bonus, label } = calculateRollParams('agility');
+      const damageFormula = weapon.damage || '1d4';
+
+      openRollModal({ 
+          title: `Segundo Ataque (${weapon.name})`, 
+          modifier: bonus, 
+          modifierLabel: label, 
+          metaDamageFormula: damageFormula, 
+          metaDamageBonus: bonus,
+          onRollConfirmed: () => handleActionUsed('minor') 
+      });
+      return;
+    }
+
+    if (data.id === 'focused_attack') {
+      setCombatState(prevState => ({ ...prevState, isConcentrated: true }));
+      handleActionUsed('minor');
+      return;
+    }
+
+    if (data.rollable) {
+      const { bonus, label } = calculateRollParams(data.attribute);
+      openRollModal({ 
+          title: `Teste de ${data.skill || 'Atributo'}`, 
+          modifier: bonus, 
+          modifierLabel: label, 
+          onRollConfirmed: () => handleActionUsed('minor') 
+      });
+      return;
+    } 
+    
+    // Ações Genéricas Simples
+    handleActionUsed('minor');
   };
 
   return (

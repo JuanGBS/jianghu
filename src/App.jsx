@@ -22,9 +22,10 @@ const defaultInventory = {
   weapon: { name: '', damage: '', attribute: '', properties: '' },
   armor: { type: 'none', properties: '' },
   general: [],
-  money: 0
+  wallet: { gold: 0, silver: 0, copper: 0 }
 };
 
+// --- MAPEAMENTO ATUALIZADO (LÊ DA NOVA TABELA TECHNIQUES) ---
 const mapToCamelCase = (data) => {
   if (!data) return null;
   return {
@@ -41,7 +42,22 @@ const mapToCamelCase = (data) => {
     masteryLevel: data.mastery_level, 
     attributes: data.attributes, 
     stats: data.stats, 
-    techniques: data.techniques || [], 
+    
+    // AQUI MUDOU: Mapeia o array que vem da tabela relacional
+    techniques: data.techniques ? data.techniques.map(t => ({
+      id: t.id,
+      name: t.name,
+      type: t.type,
+      action: t.action,
+      cost: t.cost,
+      damage: t.damage,
+      attribute: t.attribute,
+      effect: t.effect,
+      requirements: t.requirements,
+      requiresRoll: t.requires_roll, // Mapeia snake_case do banco para camelCase
+      concentration: t.concentration
+    })) : [],
+
     proficientPericias: data.proficient_pericias || [], 
     inventory: data.inventory || defaultInventory, 
     createdAt: data.created_at, 
@@ -56,59 +72,46 @@ function AppContent() {
   const [characterLoading, setCharacterLoading] = useState(true);
   const [notification, setNotification] = useState(null);
   
-  // Inicializa lendo do LocalStorage
   const [rollHistory, setRollHistory] = useState(() => {
       try {
           const saved = localStorage.getItem('rollHistory');
           return saved ? JSON.parse(saved) : [];
-      } catch (e) {
-          return [];
-      }
+      } catch (e) { return []; }
   });
   
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isImageTrayOpen, setIsImageTrayOpen] = useState(false);
   const [userImages, setUserImages] = useState([]);
   const [isProficiencyModalOpen, setIsProficiencyModalOpen] = useState(false);
-
-  // Estado para rolagem de dano do histórico
   const [damageModalData, setDamageModalData] = useState(null);
 
   const showNotification = (message, type = 'success') => setNotification({ message, type });
 
-  // --- CORREÇÃO: SALVAR NO LOCALSTORAGE SEMPRE QUE MUDAR ---
-  useEffect(() => {
-      localStorage.setItem('rollHistory', JSON.stringify(rollHistory));
-  }, [rollHistory]);
+  useEffect(() => { localStorage.setItem('rollHistory', JSON.stringify(rollHistory)); }, [rollHistory]);
 
-  // HOOK DE COMBATE DO JOGADOR
-  const { 
-    combatData, 
-    showInitiativeRoll, 
-    setShowInitiativeRoll,
-    sendInitiative, 
-    endTurn, 
-    forceRefresh,
-    sendPlayerLog 
-  } = usePlayerCombat(character, showNotification);
+  const { combatData, showInitiativeRoll, setShowInitiativeRoll, sendInitiative, endTurn, forceRefresh, sendPlayerLog } = usePlayerCombat(character, showNotification);
 
+  // Realtime Sync: Atualiza quando a tabela characters muda (ex: HP, Chi)
   useEffect(() => {
     if (!character?.id) return;
     const charChannel = supabase
       .channel(`app-char-sync-${character.id}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'characters', filter: `id=eq.${character.id}` }, (payload) => {
-          const newChar = mapToCamelCase(payload.new);
-          setCharacter(newChar);
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'characters', filter: `id=eq.${character.id}` }, async () => {
+          // Refazemos o fetch completo para garantir que as técnicas venham junto no JOIN
+          const { data } = await supabase.from('characters').select('*, techniques(*)').eq('id', character.id).single();
+          if (data) setCharacter(mapToCamelCase(data));
       })
       .subscribe();
     return () => { supabase.removeChannel(charChannel); };
   }, [character?.id]);
 
+  // Initial Fetch
   useEffect(() => {
     if (user && profile && profile.role !== 'gm') {
       const fetchCharacter = async () => {
         setCharacterLoading(true);
-        const { data } = await supabase.from('characters').select('*').eq('user_id', user.id).single();
+        // AQUI MUDOU: select('*, techniques(*)') para trazer a relação
+        const { data } = await supabase.from('characters').select('*, techniques(*)').eq('user_id', user.id).single();
         if (data) setCharacter(mapToCamelCase(data));
         setCharacterLoading(false);
       };
@@ -119,18 +122,13 @@ function AppContent() {
     }
   }, [user, profile]);
 
-  const handlePlayerInitiativeRoll = (val) => {
-      sendInitiative(val);
-      setShowInitiativeRoll(false);
-  };
-
+  // Handlers
+  const handlePlayerInitiativeRoll = (val) => { sendInitiative(val); setShowInitiativeRoll(false); };
+  
   const handleEndPlayerTurn = () => {
     if (!combatData) return;
     const currentId = combatData.turn_order[combatData.current_turn_index]?.character_id;
-    if (character.id !== currentId) {
-      showNotification("Não é o seu turno!", "error");
-      return;
-    }
+    if (character.id !== currentId) { showNotification("Não é o seu turno!", "error"); return; }
     endTurn();
   };
 
@@ -142,13 +140,31 @@ function AppContent() {
 
   const fetchUserImages = async () => { 
     if (!user) return; 
-    const { data } = await supabase.storage.from('character-images').list(`public/${user.id}`, { limit: 100, offset: 0, sortBy: { column: 'created_at', order: 'desc' }});
+    const { data } = await supabase.storage.from('character-images').list(`public/${user.id}`, { limit: 100, sortBy: { column: 'created_at', order: 'desc' }});
     if (data) { const urls = data.map(f => ({ id: f.id, name: f.name, publicURL: supabase.storage.from('character-images').getPublicUrl(`public/${user.id}/${f.name}`).data.publicUrl })); setUserImages(urls); }
   };
   
-  const handleSaveCharacter = async (data) => { const { data: r } = await supabase.from('characters').insert([{ user_id: user.id, ...data, inventory: defaultInventory }]).select().single(); setCharacter(mapToCamelCase(r)); };
+  const handleSaveCharacter = async (data) => { 
+      const { data: r } = await supabase.from('characters').insert([{ user_id: user.id, ...data, inventory: defaultInventory }]).select().single(); 
+      // Ao criar, technique é vazio, então mapeamos sem erro
+      setCharacter(mapToCamelCase(r)); 
+  };
+  
   const handleDeleteCharacter = async () => { await supabase.from('characters').delete().eq('id', character.id); setCharacter(null); };
-  const handleUpdateCharacter = async (u) => { const d = { proficient_attribute: u.proficientAttribute, name: u.name, clan_id: u.clanId, fighting_style: u.fightingStyle, innate_body_id: u.innateBodyId, image_url: u.imageUrl, body_refinement_level: u.bodyRefinement_level, cultivation_stage: u.cultivationStage, mastery_level: u.mastery_level, attributes: u.attributes, stats: u.stats, techniques: u.techniques, proficient_pericias: u.proficientPericias, inventory: u.inventory }; const { data } = await supabase.from('characters').update(d).eq('id', u.id).select().single(); if(data) setCharacter(mapToCamelCase(data)); };
+  
+  const handleUpdateCharacter = async (u) => { 
+      // Atualiza apenas campos da tabela characters
+      const d = { proficient_attribute: u.proficientAttribute, name: u.name, clan_id: u.clanId, fighting_style: u.fightingStyle, innate_body_id: u.innateBodyId, image_url: u.imageUrl, body_refinement_level: u.bodyRefinement_level, cultivation_stage: u.cultivationStage, mastery_level: u.mastery_level, attributes: u.attributes, stats: u.stats, proficient_pericias: u.proficientPericias, inventory: u.inventory }; 
+      
+      const { data } = await supabase.from('characters').update(d).eq('id', u.id).select().single(); 
+      
+      // Precisamos manter as técnicas locais ou refazer o fetch.
+      // Como o update retorna só o char, mesclamos com as técnicas que já temos no estado 'u'
+      if(data) {
+          const mappedChar = mapToCamelCase(data);
+          setCharacter({ ...mappedChar, techniques: u.techniques }); 
+      }
+  };
   
   const handleProgressionChange = (updates) => { 
       if (updates.type === 'attribute_increase') { 
@@ -165,27 +181,18 @@ function AppContent() {
   const addRollToHistory = (r) => { 
       setRollHistory(prev => [r, ...prev].slice(0, 15)); 
       setIsHistoryOpen(true); 
-      // Passa todos os metadados para o log
       handleSendLog(r.name, { total: r.total, roll: r.roll, modifier: r.modifier }, r.damageFormula || null, r.weaponCategory || null, r.damageBonus || 0);
   };
   
   const handleClearHistory = () => { setRollHistory([]); };
   const handleOpenImageTray = () => { fetchUserImages(); setIsImageTrayOpen(true); };
 
-  // --- Rolar Dano a partir do Histórico ---
   const handleHistoryDamageRoll = (historyItem) => {
     let multiplier = 1;
-    
-    // Regra de crítico no histórico do jogador
     if (historyItem.roll === 20) {
         const cat = (historyItem.weaponCategory || '').toLowerCase();
-        if (cat === 'pesada' || cat === 'p') {
-            multiplier = 3;
-        } else {
-            multiplier = 2;
-        }
+        multiplier = (cat === 'pesada' || cat === 'p') ? 3 : 2;
     }
-    
     let finalFormula = historyItem.damageFormula;
     if (multiplier > 1 && finalFormula) {
         const match = finalFormula.match(/^(\d+)d(\d+)/);
@@ -195,7 +202,6 @@ function AppContent() {
             finalFormula = `${count}d${faces}`;
         }
     }
-
     setDamageModalData({
         title: `Dano: ${historyItem.name}`,
         diceFormula: finalFormula,
@@ -209,28 +215,12 @@ function AppContent() {
 
   return (
     <div className="relative min-h-screen">
-      {combatData?.status === 'active' && (
-        <InitiativeTracker 
-            turnOrder={combatData.turn_order} 
-            currentIndex={combatData.current_turn_index} 
-            isDrawerOpen={isHistoryOpen} // Passa estado para animar o tracker
-        />
-      )}
+      {combatData?.status === 'active' && <InitiativeTracker turnOrder={combatData.turn_order} currentIndex={combatData.current_turn_index} isDrawerOpen={isHistoryOpen} />}
       
-      {profile?.role === 'gm' ? (
-        <GameMasterPanel />
-      ) : (
+      {profile?.role === 'gm' ? <GameMasterPanel /> : (
         <main>
-          {character && (
-            <InitiativeRollModal
-              isOpen={showInitiativeRoll}
-              onRollInitiative={handlePlayerInitiativeRoll}
-              agilityBonus={character.attributes.agility}
-            />
-          )}
-          {characterLoading ? (
-            <div className="min-h-screen flex items-center justify-center">Carregando Ficha...</div>
-          ) : (
+          {character && <InitiativeRollModal isOpen={showInitiativeRoll} onRollInitiative={handlePlayerInitiativeRoll} agilityBonus={character.attributes.agility} />}
+          {characterLoading ? <div className="min-h-screen flex items-center justify-center">Carregando Ficha...</div> : (
             character ? (
               <CharacterSheet 
                 character={character} 
@@ -244,44 +234,15 @@ function AppContent() {
                 onEndTurn={handleEndPlayerTurn}
                 onForceRefresh={forceRefresh}
               />
-            ) : (
-              <SheetManager onSave={handleSaveCharacter} />
-            )
+            ) : <SheetManager onSave={handleSaveCharacter} />
           )}
         </main>
       )}
 
-      {(character || profile?.role === 'gm') && (
-        <RollHistoryDrawer 
-            history={rollHistory} 
-            isOpen={isHistoryOpen} 
-            onToggle={() => setIsHistoryOpen(!isHistoryOpen)} 
-            onClearHistory={handleClearHistory}
-            onRollDamage={handleHistoryDamageRoll}
-        />
-      )}
-
+      {(character || profile?.role === 'gm') && <RollHistoryDrawer history={rollHistory} isOpen={isHistoryOpen} onToggle={() => setIsHistoryOpen(!isHistoryOpen)} onClearHistory={handleClearHistory} onRollDamage={handleHistoryDamageRoll} />}
       <ImageSelectionTray isOpen={isImageTrayOpen} onClose={() => setIsImageTrayOpen(false)} images={userImages} onSelect={handleSelectImage} onUpload={handleImageUpload} />
       <ProficiencyChoiceModal isOpen={isProficiencyModalOpen} onSelect={handleProficiencySelect} />
-      
-      <RollTestModal 
-        isOpen={!!damageModalData} 
-        onClose={() => setDamageModalData(null)}
-        title={damageModalData?.title}
-        modifier={damageModalData?.modifier}
-        modifierLabel={damageModalData?.modifierLabel}
-        diceFormula={damageModalData?.diceFormula}
-        onRollComplete={(result) => {
-             addRollToHistory({ 
-                 name: damageModalData.title, 
-                 roll: result.roll, 
-                 modifier: result.modifier, 
-                 total: result.total,
-                 damageFormula: null 
-             });
-        }}
-      />
-
+      <RollTestModal isOpen={!!damageModalData} onClose={() => setDamageModalData(null)} title={damageModalData?.title} modifier={damageModalData?.modifier} modifierLabel={damageModalData?.modifierLabel} diceFormula={damageModalData?.diceFormula} onRollComplete={(result) => { addRollToHistory({ name: damageModalData.title, roll: result.roll, modifier: result.modifier, total: result.total, damageFormula: null }); }} />
       {notification && <NotificationToast message={notification.message} type={notification.type} onClose={() => setNotification(null)} />}
     </div>
   );
