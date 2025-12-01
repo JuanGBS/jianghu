@@ -1,22 +1,37 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/solid';
 
 function NotificationToast({ message, type, onClose }) {
   const [isVisible, setIsVisible] = useState(false);
+  
+  // Ref para guardar a função de fechar mais recente sem reiniciar o efeito
+  const onCloseRef = useRef(onClose);
 
   useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    // 1. Inicia animação de entrada
     const enterTimer = setTimeout(() => setIsVisible(true), 10);
 
+    // 2. Agenda a saída (3 segundos)
     const exitTimer = setTimeout(() => {
       setIsVisible(false);
-      setTimeout(onClose, 300); 
+      
+      // 3. Aguarda animação de saída terminar (300ms) e chama onClose
+      setTimeout(() => {
+        if (onCloseRef.current) onCloseRef.current();
+      }, 300);
     }, 3000); 
 
     return () => {
       clearTimeout(enterTimer);
       clearTimeout(exitTimer);
     };
-  }, [message, type, onClose]);
+    // IMPORTANTE: Removemos 'onClose' da lista de dependências.
+    // O timer só reinicia se a MENSAGEM ou o TIPO mudarem.
+  }, [message, type]);
 
   const isSuccess = type === 'success';
   const bgColor = isSuccess ? 'bg-green-500' : 'bg-red-500';
@@ -24,7 +39,7 @@ function NotificationToast({ message, type, onClose }) {
 
   return (
     <div
-      className={`fixed top-5 left-1/2 -translate-x-1/2 z-50 flex items-center p-4 rounded-lg shadow-xl text-white transition-all duration-300 ${bgColor} ${
+      className={`fixed top-5 left-1/2 -translate-x-1/2 z-[100] flex items-center p-4 rounded-lg shadow-xl text-white transition-all duration-300 pointer-events-none ${bgColor} ${
         isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-10'
       }`}
     >

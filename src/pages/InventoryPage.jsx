@@ -241,7 +241,7 @@ function InventoryPage({ character, onUpdateCharacter, isGmMode }) {
                     className={`${selectStyle} mb-2 font-semibold text-purple-900`}
                     value={WEAPONS_LIST.find(w => w.name === inventory.weapon.name)?.id || 'custom'}
                 >
-                    <option value="custom">-- Arma Personalizada / Outra --</option>
+                    <option value="custom">Arma Personalizada</option>
                     <optgroup label="Leves">
                         {WEAPONS_LIST.filter(w => w.category === 'leve').map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                     </optgroup>

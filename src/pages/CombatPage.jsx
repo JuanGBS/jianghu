@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { BoltIcon, ShieldCheckIcon, HandRaisedIcon, PlusCircleIcon, CheckCircleIcon, EyeIcon, ClockIcon, NoSymbolIcon, ArrowPathIcon, FireIcon } from '@heroicons/react/24/solid';
 import { ATTRIBUTE_TRANSLATIONS } from '../data/translations';
 
-function CombatPage({ character, combatState, onNewTurn, openRollModal, onOpenAttackModal, onOpenMinorActionModal, onActionUsed, isMyTurn, onEndTurn, combatData, onRefresh }) {
+const CombatPage = memo(function CombatPage({ character, combatState, onNewTurn, openRollModal, onOpenAttackModal, onOpenMinorActionModal, onActionUsed, isMyTurn, onEndTurn, combatData, onRefresh }) {
 
   if (!combatData) {
     return (
@@ -10,7 +10,6 @@ function CombatPage({ character, combatState, onNewTurn, openRollModal, onOpenAt
         <NoSymbolIcon className="h-16 w-16 text-gray-300 mb-4" />
         <h3 className="text-xl font-bold text-gray-500">Nenhum Combate Ativo</h3>
         <p className="text-gray-400 text-sm mt-2">Aguarde o Mestre iniciar.</p>
-        <button onClick={onRefresh} className="mt-4 text-purple-600 font-bold text-sm flex items-center"><ArrowPathIcon className="h-4 w-4 mr-1" /> Forçar Sincronização</button>
       </div>
     );
   }
@@ -26,13 +25,12 @@ function CombatPage({ character, combatState, onNewTurn, openRollModal, onOpenAt
           <ClockIcon className="h-16 w-16 text-purple-600" />
         </div>
         <h2 className="text-2xl font-bold text-brand-text mb-2">Preparando Combate...</h2>
-        <button onClick={onRefresh} className="flex items-center gap-2 text-sm text-purple-600 font-semibold hover:bg-purple-50 px-3 py-1 rounded-lg mb-4 transition-colors"><ArrowPathIcon className="h-4 w-4" /> Atualizar Status / Destravar</button>
         {!hasRolled ? (
           <div className="space-y-2"><p className="text-gray-600 text-lg font-bold animate-pulse">Role sua Iniciativa!</p><p className="text-sm text-gray-500">(Janela aberta)</p></div>
         ) : (
           <div className="space-y-2"><p className="text-green-600 font-bold text-xl">Sua Iniciativa: {myInitiative}</p><p className="text-gray-500">Aguardando o Mestre.</p></div>
         )}
-        <div className="mt-8 w-full max-w-md bg-gray-50 rounded-lg p-4 border text-left max-h-60 overflow-y-auto">
+        <div className="mt-8 w-full max-w-md bg-gray-50 rounded-lg p-4 border text-left max-h-60 overflow-y-auto custom-scrollbar">
           <h4 className="font-bold text-gray-500 text-sm mb-2 sticky top-0 bg-gray-50 pb-1">Participantes:</h4>
           <ul className="space-y-2">
             {combatData.turn_order.map((p, idx) => (
@@ -56,137 +54,16 @@ function CombatPage({ character, combatState, onNewTurn, openRollModal, onOpenAt
   const handleBlock = () => openRollModal({ title: 'Teste de Bloqueio', modifier: character.attributes.vigor, modifierLabel: 'Vigor' });
   const handleMovement = () => { if (!combatState.actionsUsed.movement) onActionUsed('movement'); }
 
-  const calculateRollParams = (rawAttribute) => {
-    let attrKey = (rawAttribute || 'agility').toLowerCase();
-    const map = { 'agilidade': 'agility', 'vigor': 'vigor', 'presença': 'presence', 'disciplina': 'discipline', 'compreensão': 'comprehension', 'compreensao': 'comprehension' };
-    if (map[attrKey]) attrKey = map[attrKey];
-    
-    let bonus = character.attributes[attrKey] || 0;
-    if (character.proficientAttribute === attrKey) bonus *= 2;
-
-    return { 
-        bonus, 
-        label: ATTRIBUTE_TRANSLATIONS[attrKey] || attrKey 
-    };
-  };
-
-  const handleSelectAttackAction = (type, data) => {
-    const { bonus, label } = calculateRollParams(data.attribute);
-    let rollData = {};
-    let damageFormula = null;
-    let weaponCategory = null;
-
-    if (type === 'weapon') {
-        damageFormula = data.damage || '1d4';
-        weaponCategory = data.category; 
-    } else if (type === 'technique') {
-        damageFormula = data.damage; 
-    }
-
-    switch(type) {
-      case 'weapon': 
-        rollData = { title: `Ataque com ${data.name}`, modifier: bonus, modifierLabel: label }; 
-        break;
-      case 'technique': 
-        rollData = { title: `Técnica: ${data.name}`, modifier: bonus, modifierLabel: label }; 
-        break;
-      case 'maneuver': 
-        rollData = { title: `Manobra: ${data.name}`, modifier: bonus, modifierLabel: ATTRIBUTE_TRANSLATIONS[data.attribute] || data.attribute }; 
-        break;
-      default: return;
-    }
-    
-    if (combatState.isConcentrated) {
-      rollData.mode = 'advantage';
-    }
-
-    rollData.metaDamageFormula = damageFormula; 
-    rollData.weaponCategory = weaponCategory;
-    rollData.metaDamageBonus = bonus; 
-
-    rollData.onRollConfirmed = () => {
-      handleActionUsed('major');
-      setCombatState(prevState => ({ ...prevState, isConcentrated: false }));
-    };
-    openRollModal(rollData);
-  };
-
-  // --- AÇÃO MENOR CORRIGIDA (USA O NULL CHECK) ---
-  const handleSelectMinorAction = (data) => {
-    
-    if (data.isTechnique) {
-        // A LÓGICA CHAVE: Se o campo for TRUE, rola. Se for NULL, não rola.
-        const shouldRoll = data.requiresRoll === true;
-
-        if (shouldRoll) {
-             const { bonus, label } = calculateRollParams(data.attribute);
-             
-             openRollModal({ 
-                title: `Técnica (Menor): ${data.name}`, 
-                modifier: bonus, 
-                modifierLabel: label,
-                
-                // Metadados para histórico
-                metaDamageFormula: data.damage, 
-                metaDamageBonus: bonus,
-                
-                onRollConfirmed: () => handleActionUsed('minor') 
-            });
-        } else {
-            // Técnica sem rolagem (Buff)
-            handleActionUsed('minor');
-            // showNotification(`Técnica ${data.name} utilizada!`, 'success'); // Opcional
-        }
-        return;
-    }
-
-    if (data.id === 'second_attack') {
-      const weapon = character.inventory.weapon;
-      const { bonus, label } = calculateRollParams('agility');
-      const damageFormula = weapon.damage || '1d4';
-
-      openRollModal({ 
-          title: `Segundo Ataque (${weapon.name})`, 
-          modifier: bonus, 
-          modifierLabel: label, 
-          metaDamageFormula: damageFormula, 
-          metaDamageBonus: bonus,
-          onRollConfirmed: () => handleActionUsed('minor') 
-      });
-      return;
-    }
-
-    if (data.id === 'focused_attack') {
-      setCombatState(prevState => ({ ...prevState, isConcentrated: true }));
-      handleActionUsed('minor');
-      return;
-    }
-
-    if (data.rollable) {
-      const { bonus, label } = calculateRollParams(data.attribute);
-      openRollModal({ 
-          title: `Teste de ${data.skill || 'Atributo'}`, 
-          modifier: bonus, 
-          modifierLabel: label, 
-          onRollConfirmed: () => handleActionUsed('minor') 
-      });
-      return;
-    } 
-    
-    // Ações Genéricas Simples
-    handleActionUsed('minor');
-  };
-
   return (
     <div className="bg-white p-6 rounded-2xl shadow-lg flex flex-col max-h-[70vh] h-full relative">
       <div className="flex justify-between items-center border-b pb-2 mb-4 flex-shrink-0">
         <h3 className="text-xl font-semibold text-brand-text">Painel de Combate</h3>
         {isMyTurn ? <span className="text-sm font-bold text-green-600 animate-pulse bg-green-100 px-3 py-1 rounded-full shadow-sm">SEU TURNO</span> : <span className="text-sm font-bold text-gray-500 flex items-center bg-gray-100 px-3 py-1 rounded-full"><ClockIcon className="h-4 w-4 mr-1" /> Vez de: {activeName}</span>}
       </div>
-      <div className="absolute top-0 right-0 mt-[-40px]"><button onClick={onRefresh} className="text-xs text-gray-400 hover:text-purple-600 flex items-center gap-1 p-4"><ArrowPathIcon className="h-4 w-4" /></button></div>
+      
       {!isMyTurn && <div className="absolute inset-0 top-16 bg-white/60 backdrop-blur-[1px] z-10 flex flex-col items-center justify-center rounded-b-2xl pointer-events-none"></div>}
       
-      <div className="space-y-6 overflow-y-auto pr-2 flex-grow">
+      <div className="space-y-6 overflow-y-auto pr-2 flex-grow custom-scrollbar">
         <div>
           <div className="flex justify-between items-center mb-2"><h4 className="font-bold text-gray-700 text-sm">Ações no Turno</h4>{isMyTurn && (<button onClick={onNewTurn} className="text-xs font-semibold text-purple-600 hover:text-purple-800 underline">Resetar (Debug)</button>)}</div>
           <div className="grid grid-cols-3 gap-2 bg-gray-100 p-2 rounded-lg text-center font-semibold text-sm">
@@ -216,6 +93,6 @@ function CombatPage({ character, combatState, onNewTurn, openRollModal, onOpenAt
       </div>
     </div>
   );
-}
+});
 
 export default CombatPage;

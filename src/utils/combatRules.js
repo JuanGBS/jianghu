@@ -1,63 +1,83 @@
 import { parseDiceString, rollDice } from './dice';
+import { WEAPONS_LIST } from '../data/weapons'; // <--- 1. Importar a lista oficial
 
-// Normaliza a categoria para evitar erros de "Pesada" vs "pesada"
+// Normaliza a categoria
 export const normalizeCategory = (category) => {
     if (!category) return 'normal';
     const cat = category.toLowerCase().trim();
+    
     if (cat === 'p' || cat.includes('pesada') || cat.includes('heavy')) return 'pesada';
     if (cat === 'l' || cat.includes('leve') || cat.includes('light')) return 'leve';
+    if (cat === 'm' || cat.includes('media') || cat.includes('medium')) return 'media';
+    
     return 'normal';
 };
 
-export const calculateAttackDamage = (character, weapon, isCrit) => {
-    // 1. Dados da Arma
-    const damageStr = weapon.damage || '1d4';
-    const category = normalizeCategory(weapon.category);
-    const attrKey = (weapon.attribute || 'agility').toLowerCase();
+export const calculateAttackDamage = (character, equippedWeapon, isCrit) => {
+    // --- 2. LÓGICA DE FONTE ÚNICA DE VERDADE ---
+    // Tenta encontrar a arma na lista oficial pelo nome exato
+    const officialWeapon = WEAPONS_LIST.find(w => w.name === equippedWeapon.name);
+    
+    // Se achar a arma oficial, usa os status dela. Se não, usa o que está na ficha (Custom)
+    const weaponData = officialWeapon ? {
+        ...equippedWeapon, // Mantém propriedades extras se houver
+        damage: officialWeapon.damage,
+        category: officialWeapon.category,
+        attribute: officialWeapon.allowedAttributes[0] // Usa o atributo padrão da arma oficial
+    } : equippedWeapon;
+    // ----------------------------------------------------
+
+    // 1. Dados da Arma (Usando os dados higienizados acima)
+    const damageStr = weaponData.damage || '1d4';
+    const category = normalizeCategory(weaponData.category);
+    
+    // Normalização do atributo
+    let attrKey = (weaponData.attribute || 'agility').toLowerCase();
+    const attrMap = { 
+        'agilidade': 'agility', 
+        'vigor': 'vigor', 
+        'força': 'vigor',
+        'presença': 'presence', 
+        'disciplina': 'discipline', 
+        'compreensão': 'comprehension' 
+    };
+    if (attrMap[attrKey]) attrKey = attrMap[attrKey];
 
     // 2. Configuração do Dado
     const diceConfig = parseDiceString(damageStr);
 
-    // 3. Regra de Crítico
+    // 3. Regra de Crítico (PDF Pág. 21)
     let multiplier = 1;
     if (isCrit) {
-        // AQUI ESTÁ A REGRA CENTRALIZADA
         multiplier = (category === 'pesada') ? 3 : 2;
     }
 
     const count = diceConfig.count * multiplier;
 
     // 4. Bônus de Atributo
-    // Tenta pegar da ficha do personagem
     let attributeBonus = 0;
     if (character && character.attributes) {
-        // Normaliza chaves de atributo
-        let key = attrKey;
-        if (key === 'agilidade') key = 'agility';
-        if (key === 'vigor') key = 'vigor';
-        if (key === 'força') key = 'vigor'; // Fallback
-
-        attributeBonus = character.attributes[key] || 0;
-        
-        // Se for proficiente (lógica simplificada, assumindo que proficientAttribute armazena a chave)
-        if (character.proficientAttribute === key) {
-             // Se o sistema dobra atributo no dano por proficiência, descomente abaixo:
-             // attributeBonus *= 2; 
-        }
+        attributeBonus = character.attributes[attrKey] || 0;
     }
 
-    // Soma o bônus fixo da arma (ex: 1d8+1) com o atributo
     const finalBonus = diceConfig.modifier + attributeBonus;
 
     // 5. Rolagem
     const { total, rolls } = rollDice(count, diceConfig.faces);
     const finalTotal = total + finalBonus;
 
+    // 6. Formatação
+    const critLabel = isCrit ? (multiplier === 3 ? " (CRÍTICO DEVASTADOR x3!)" : " (Crítico x2!)") : "";
+    const bonusStr = finalBonus !== 0 ? (finalBonus > 0 ? ` + ${finalBonus}` : ` - ${Math.abs(finalBonus)}`) : '';
+    
+    const message = `Dano: **${finalTotal}** [${rolls.join('+')}${bonusStr}]${critLabel}`;
+
     return {
         total: finalTotal,
         rolls: rolls,
         bonus: finalBonus,
         multiplier: multiplier,
-        isCrit: isCrit
+        isCrit: isCrit,
+        message: message
     };
 };

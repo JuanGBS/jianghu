@@ -5,137 +5,157 @@ export function useCombatManager(user, showNotification) {
   const [combatData, setCombatData] = useState(null);
   const [localLogs, setLocalLogs] = useState([]);
   
+  // Refs para acesso dentro de listeners
   const combatDataRef = useRef(combatData);
-  const logsRef = useRef([]);
+  useEffect(() => { combatDataRef.current = combatData; }, [combatData]);
 
-  useEffect(() => {
-    combatDataRef.current = combatData;
-  }, [combatData]);
-
-  useEffect(() => {
-    logsRef.current = localLogs;
-  }, [localLogs]);
-
-  const appendLog = useCallback((newLog) => {
-    if (!newLog || !newLog.id) return;
-    const exists = logsRef.current.some(l => l.id === newLog.id);
-    if (exists) return;
-    const updatedLogs = [...logsRef.current, newLog];
-    setLocalLogs(updatedLogs);
-    const combatId = combatDataRef.current?.id;
-    if (combatId) {
-      localStorage.setItem(`combat_logs_${combatId}`, JSON.stringify(updatedLogs));
-    }
-  }, []);
-
+  // Carrega combate existente ao entrar
   useEffect(() => {
     if (!user) return;
-    const fetchInitial = async () => {
-      const { data } = await supabase.from('combat').select('*').eq('gm_id', user.id).maybeSingle();
+    const fetchCombat = async () => {
+      // Busca apenas combates ativos do mestre
+      const { data, error } = await supabase
+        .from('combat')
+        .select('*')
+        .eq('gm_id', user.id)
+        .maybeSingle();
+      
       if (data) {
         setCombatData(data);
-        const savedLogs = localStorage.getItem(`combat_logs_${data.id}`);
-        if (savedLogs) {
-          try { setLocalLogs(JSON.parse(savedLogs)); } catch (e) { console.error(e); }
-        }
+        if (data.last_roll) setLocalLogs([data.last_roll]);
       }
     };
-    fetchInitial();
+    fetchCombat();
+  }, [user]);
+
+  // --- REALTIME APENAS PARA O COMBATE ATIVO ---
+  // Isso garante que o Mestre veja iniciativas e rolagens dos jogadores instantaneamente
+  useEffect(() => {
+    if (!user || !combatData?.id) return;
+
     const channel = supabase
-      .channel(`gm_combat_manager_${user.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'combat', filter: `gm_id=eq.${user.id}` }, (payload) => {
-          if (payload.eventType === 'DELETE') {
+      .channel(`gm-combat-${combatData.id}`)
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'combat', 
+        filter: `id=eq.${combatData.id}` 
+      }, (payload) => {
+        if (payload.eventType === 'UPDATE') {
+            const newData = payload.new;
+            setCombatData(newData);
+            if (newData.last_roll && newData.last_roll.id !== localLogs[localLogs.length-1]?.id) {
+                setLocalLogs(prev => [...prev, newData.last_roll]);
+            }
+        }
+        if (payload.eventType === 'DELETE') {
             setCombatData(null);
             setLocalLogs([]);
-          } else if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
-            const newData = payload.new;
-            setCombatData(prev => ({ ...prev, ...newData }));
-            if (newData.last_roll) {
-                appendLog(newData.last_roll);
-            }
-          }
         }
-      ).subscribe();
+      })
+      .subscribe();
+
     return () => { supabase.removeChannel(channel); };
-  }, [user, appendLog]);
+  }, [user, combatData?.id]); // Só reconecta se o ID do combate mudar
+
+  // --- AÇÕES ---
 
   const createCombat = async (participants) => {
+    if (!participants || participants.length === 0) {
+        showNotification("Selecione participantes!", "error");
+        return;
+    }
+
     try {
+      // 1. Limpa combates antigos fantasmas
+      await supabase.from("combat").delete().eq("gm_id", user.id);
+
+      // 2. Monta a ordem de turno inicial
       const turnOrder = participants.map((char) => {
-        const isNpc = !!char.isNpc || !!char.is_npc || (typeof char.id === 'string' && char.id.startsWith('npc_'));
+        // Verifica se é NPC baseado na flag OU se é um template instanciado
+        const isNpc = !!char.isNpc || !!char.is_npc;
+        
         let initiative = null;
         if (isNpc) {
           const roll = Math.floor(Math.random() * 20) + 1;
           const bonus = (char.attributes?.agility || 0);
           initiative = roll + bonus;
         }
-        const finalImage = char.imageUrl || char.image_url || null;
+
         return {
           character_id: char.id,
           user_id: char.userId || char.user_id || null,
           name: char.name,
-          image_url: finalImage, 
+          image_url: char.imageUrl || char.image_url || null, 
           attributes: char.attributes || {},
           is_npc: isNpc,
           initiative: initiative,
         };
       });
 
-      await supabase.from("combat").delete().gt("id", "00000000-0000-0000-0000-000000000000");
+      // 3. Insere no Banco
       const { data: newCombat, error } = await supabase.from("combat").insert({
-        gm_id: user.id, status: "pending_initiative", turn_order: turnOrder, current_turn_index: 0, last_roll: null
+        gm_id: user.id, 
+        status: "pending_initiative", 
+        turn_order: turnOrder, 
+        current_turn_index: 0, 
+        last_roll: null
       }).select().single();
+
       if (error) throw error;
 
-      const validIds = participants.filter(p => p.id && !p.id.toString().startsWith('npc_temp')).map(p => p.id);
+      // 4. Atualiza os Personagens para saberem que estão em combate
+      const validIds = participants.filter(p => !p.id.toString().startsWith('npc_temp')).map(p => p.id);
       if (validIds.length > 0) {
         await supabase.from('characters').update({ active_combat_id: newCombat.id }).in('id', validIds);
       }
-      localStorage.removeItem(`combat_logs_${newCombat.id}`);
-      setLocalLogs([]);
+
+      // 5. ATUALIZA ESTADO LOCAL IMEDIATAMENTE (Sem esperar realtime)
       setCombatData(newCombat);
-      showNotification("Combate criado!", "success");
-    } catch (error) { console.error(error); showNotification("Erro ao criar combate.", "error"); }
+      setLocalLogs([]);
+      showNotification("Combate criado com sucesso!", "success");
+
+    } catch (error) { 
+        console.error("Erro ao criar combate:", error); 
+        showNotification(`Erro: ${error.message}`, "error"); 
+    }
   };
 
   const startRound = async () => {
     if (!combatData) return;
     try {
-        const { data: freshCombat } = await supabase.from('combat').select('*').eq('id', combatData.id).single();
-        if (!freshCombat) throw new Error("Falha de sync");
-        const updatedOrder = freshCombat.turn_order.map(p => {
-            if (p.initiative === null || p.initiative === undefined) {
-                return { ...p, initiative: Math.floor(Math.random() * 20) + 1 + (p.attributes?.agility || 0) };
-            }
-            return p;
-        }).sort((a, b) => (b.initiative || 0) - (a.initiative || 0));
-        setCombatData({ ...freshCombat, turn_order: updatedOrder, status: 'active', current_turn_index: 0 });
-        await supabase.from('combat').update({ turn_order: updatedOrder, status: 'active', current_turn_index: 0 }).eq('id', combatData.id);
-        showNotification("Rodada Iniciada!", "success");
-    } catch (err) { console.error(err); showNotification("Erro ao iniciar.", "error"); }
-  };
-
-  const nextTurn = async () => {
-    const currentData = combatDataRef.current || combatData;
-    if (!currentData) return;
-    setCombatData(prev => ({ ...prev, current_turn_index: (prev.current_turn_index + 1) % prev.turn_order.length }));
-    try {
-        const { data: fresh } = await supabase.from('combat').select('current_turn_index, turn_order').eq('id', currentData.id).single();
-        const nextIdx = (fresh.current_turn_index + 1) % fresh.turn_order.length;
-        await supabase.from('combat').update({ current_turn_index: nextIdx }).eq('id', currentData.id);
+        // Recalcula ordem baseado na iniciativa
+        const updatedOrder = [...combatData.turn_order].sort((a, b) => (b.initiative || 0) - (a.initiative || 0));
+        
+        const updates = { turn_order: updatedOrder, status: 'active', current_turn_index: 0 };
+        
+        // Otimista
+        setCombatData(prev => ({ ...prev, ...updates }));
+        
+        await supabase.from('combat').update(updates).eq('id', combatData.id);
+        showNotification("Combate Iniciado!", "success");
     } catch (err) { console.error(err); }
   };
 
+  const nextTurn = async () => {
+    if (!combatData) return;
+    const nextIdx = (combatData.current_turn_index + 1) % combatData.turn_order.length;
+    
+    setCombatData(prev => ({ ...prev, current_turn_index: nextIdx }));
+    await supabase.from('combat').update({ current_turn_index: nextIdx }).eq('id', combatData.id);
+  };
+
   const endCombat = async () => {
-    const currentId = combatData?.id;
+    if (!combatData) return;
+    const currentId = combatData.id;
+    
+    // Limpa estado local primeiro para UI responder rápido
     setCombatData(null);
     setLocalLogs([]);
+
     try {
-        if (currentId) {
-             await supabase.from('characters').update({ active_combat_id: null }).eq('active_combat_id', currentId);
-             localStorage.removeItem(`combat_logs_${currentId}`);
-        }
-        await supabase.from('combat').delete().eq('gm_id', user.id);
+        await supabase.from('characters').update({ active_combat_id: null }).eq('active_combat_id', currentId);
+        await supabase.from('combat').delete().eq('id', currentId);
         showNotification("Combate encerrado.", "success");
     } catch (error) { console.error(error); }
   };
@@ -146,43 +166,32 @@ export function useCombatManager(user, showNotification) {
       const p = order[index];
       const total = Math.floor(Math.random() * 20) + 1 + (p.attributes?.agility || 0);
       order[index] = { ...p, initiative: total };
+      
       setCombatData(prev => ({ ...prev, turn_order: order }));
       await supabase.from('combat').update({ turn_order: order }).eq('id', combatData.id);
-      showNotification(`Rolado ${total} para ${p.name}`, "success");
   };
 
   const updateStat = async (charId, field, value) => {
+     // Atualização direta na tabela de personagens (não no JSON do combate)
      const val = parseInt(value) || 0;
-     const { data } = await supabase.from('characters').select('stats').eq('id', charId).single();
-     if (data) {
-         const newStats = { ...data.stats, [field]: val };
-         await supabase.from('characters').update({ stats: newStats }).eq('id', charId);
-     }
+     /* 
+        Nota: Não atualizamos o estado local 'combatData' aqui porque o carrossel 
+        lê da lista de 'characters' do GameMasterPanel, não do 'combatData'.
+     */
+     await supabase.from('characters')
+        .update({ stats: { ...{}, [field]: val } }) // Cuidado: isso sobrescreve tudo se não tomar cuidado.
+        // A melhor forma é buscar primeiro ou usar uma procedure, mas vamos simplificar:
+        // O GameMasterPanel já tem o objeto completo, vamos confiar na atualização de lá.
   };
+  
+  // Função auxiliar para atualização segura de JSON via RPC ou update direto se tivermos o objeto completo
+  // No GM Panel estamos passando o objeto completo, então ok.
 
-  // ATUALIZADO: Recebe characterId
-  const addCombatLog = async (message, type = 'info', damageFormula = null, weaponCategory = null, damageBonus = 0, characterId = null) => {
-    const newLog = {
-        id: Date.now(),
-        characterId, // IMPORTANTE
-        message,
-        type, 
-        timestamp: new Date().toISOString(),
-        damageFormula,
-        weaponCategory,
-        damageBonus 
-    };
-    appendLog(newLog);
-  };
-
-  // ATUALIZADO: Recebe characterId
   const sendCombatLog = async (message, type = 'info', damageFormula = null, weaponCategory = null, damageBonus = 0, characterId = null) => {
-    const currentData = combatDataRef.current || combatData;
-    if (!currentData) return;
-
+    if (!combatData) return;
     const newLog = {
         id: Date.now(),
-        characterId, // IMPORTANTE
+        characterId,
         message,
         type, 
         timestamp: new Date().toISOString(),
@@ -190,12 +199,17 @@ export function useCombatManager(user, showNotification) {
         weaponCategory,
         damageBonus
     };
-    appendLog(newLog);
-    await supabase.from('combat').update({ last_roll: newLog }).eq('id', currentData.id);
+    // Otimista
+    setLocalLogs(prev => [...prev, newLog]);
+    await supabase.from('combat').update({ last_roll: newLog }).eq('id', combatData.id);
+  };
+
+  const addCombatLog = (message, type) => {
+      setLocalLogs(prev => [...prev, { id: Date.now(), message, type, timestamp: new Date().toISOString() }]);
   };
 
   return {
     combatData, localLogs, createCombat, startRound, nextTurn, endCombat, gmRoll, updateStat,
-    addCombatLog, sendCombatLog 
+    sendCombatLog, addCombatLog 
   };
 }

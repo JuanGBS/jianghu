@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { supabase } from './services/supabaseClient';
 
@@ -39,21 +39,7 @@ const mapToCamelCase = (data) => {
     masteryLevel: data.mastery_level, 
     attributes: data.attributes, 
     stats: data.stats, 
-    
-    techniques: data.techniques ? data.techniques.map(t => ({
-      id: t.id,
-      name: t.name,
-      type: t.type,
-      action: t.action,
-      cost: t.cost,
-      damage: t.damage,
-      attribute: t.attribute,
-      effect: t.effect,
-      requirements: t.requirements,
-      requiresRoll: t.requires_roll,
-      concentration: t.concentration
-    })) : [],
-
+    techniques: data.techniques ? data.techniques.map(t => ({ id: t.id, name: t.name, type: t.type, action: t.action, cost: t.cost, damage: t.damage, attribute: t.attribute, effect: t.effect, requirements: t.requirements, requiresRoll: t.requires_roll, concentration: t.concentration })) : [],
     proficientPericias: data.proficient_pericias || [], 
     inventory: data.inventory || defaultInventory, 
     createdAt: data.created_at, 
@@ -62,17 +48,15 @@ const mapToCamelCase = (data) => {
 };
 
 function AppContent() {
-  const { user, profile, isLoading } = useAuth();
+  const { user, profile, isLoading: isAuthLoading } = useAuth();
   
   const [character, setCharacter] = useState(null);
   const [characterLoading, setCharacterLoading] = useState(true);
   const [notification, setNotification] = useState(null);
+  const lastFetchTime = useRef(0);
   
   const [rollHistory, setRollHistory] = useState(() => {
-      try {
-          const saved = localStorage.getItem('rollHistory');
-          return saved ? JSON.parse(saved) : [];
-      } catch (e) { return []; }
+      try { const saved = localStorage.getItem('rollHistory'); return saved ? JSON.parse(saved) : []; } catch (e) { return []; }
   });
   
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -87,40 +71,88 @@ function AppContent() {
 
   const { combatData, showInitiativeRoll, setShowInitiativeRoll, sendInitiative, endTurn, forceRefresh, sendPlayerLog } = usePlayerCombat(character, showNotification);
 
+  // --- BUSCA INICIAL ---
+  const fetchCharacterOnly = useCallback(async () => {
+    if (!user || profile?.role === 'gm') { setCharacterLoading(false); return; }
+    try {
+        const { data, error } = await supabase.from('characters').select('*, techniques(*)').eq('user_id', user.id).maybeSingle();
+        if (data) setCharacter(mapToCamelCase(data));
+        else setCharacter(null);
+    } catch (err) { console.error(err); } 
+    finally { setCharacterLoading(false); }
+  }, [user, profile]);
+
+  useEffect(() => {
+    if (isAuthLoading) return;
+    if (user && profile && profile.role !== 'gm') {
+        if (!character) setCharacterLoading(true);
+        fetchCharacterOnly();
+    } else {
+        setCharacterLoading(false);
+        setCharacter(null);
+    }
+  }, [user, profile, isAuthLoading, fetchCharacterOnly]);
+
+  // --- REALTIME AUTOMÁTICO (JOGADOR) ---
   useEffect(() => {
     if (!character?.id) return;
     const charChannel = supabase
       .channel(`app-char-sync-${character.id}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'characters', filter: `id=eq.${character.id}` }, async () => {
-          const { data } = await supabase.from('characters').select('*, techniques(*)').eq('id', character.id).single();
-          if (data) setCharacter(mapToCamelCase(data));
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'characters', filter: `id=eq.${character.id}` }, () => {
+          fetchCharacterOnly();
       })
       .subscribe();
     return () => { supabase.removeChannel(charChannel); };
-  }, [character?.id]);
+  }, [character?.id, fetchCharacterOnly]);
 
+  // --- RE-FOCUS REFRESH ---
   useEffect(() => {
-    if (user && profile && profile.role !== 'gm') {
-      const fetchCharacter = async () => {
-        setCharacterLoading(true);
-        const { data } = await supabase.from('characters').select('*, techniques(*)').eq('user_id', user.id).single();
-        if (data) setCharacter(mapToCamelCase(data));
-        setCharacterLoading(false);
-      };
-      fetchCharacter();
-    } else {
-      setCharacterLoading(false);
-      setCharacter(null);
-    }
-  }, [user, profile]);
+    const handleReFocus = () => {
+        const now = Date.now();
+        if (now - lastFetchTime.current < 10000) return;
+        lastFetchTime.current = now;
+        if (character) {
+            console.log("Refocus: Atualizando dados...");
+            fetchCharacterOnly();
+            forceRefresh();
+        }
+    };
+    window.addEventListener('focus', handleReFocus);
+    return () => window.removeEventListener('focus', handleReFocus);
+  }, [character, fetchCharacterOnly, forceRefresh]);
 
+  // --- HANDLERS ---
   const handlePlayerInitiativeRoll = (val) => { sendInitiative(val); setShowInitiativeRoll(false); };
+  const handleEndPlayerTurn = () => { if (!combatData) return; endTurn(); };
+
+  const handleSaveCharacter = async (data) => { 
+      const dbPayload = { user_id: user.id, name: data.name, clan_id: data.clanId, fighting_style: data.fightingStyle, innate_body_id: data.innateBodyId, body_refinement_level: data.bodyRefinement_level, cultivation_stage: data.cultivation_stage, mastery_level: data.mastery_level, attributes: data.attributes, stats: data.stats, proficient_pericias: data.proficientPericias, inventory: defaultInventory };
+      const { data: r, error } = await supabase.from('characters').insert([dbPayload]).select().single();
+      if (error) showNotification("Erro: " + error.message, "error");
+      else setCharacter(mapToCamelCase(r)); 
+  };
   
-  const handleEndPlayerTurn = () => {
-    if (!combatData) return;
-    const currentId = combatData.turn_order[combatData.current_turn_index]?.character_id;
-    if (character.id !== currentId) { showNotification("Não é o seu turno!", "error"); return; }
-    endTurn();
+  const handleDeleteCharacter = async () => { await supabase.from('characters').delete().eq('id', character.id); setCharacter(null); };
+  const handleUpdateCharacter = async (u) => { setCharacter({ ...u }); const d = { proficient_attribute: u.proficientAttribute, name: u.name, clan_id: u.clanId, fighting_style: u.fightingStyle, innate_body_id: u.innateBodyId, image_url: u.imageUrl, body_refinement_level: u.bodyRefinement_level, cultivation_stage: u.cultivationStage, mastery_level: u.mastery_level, attributes: u.attributes, stats: u.stats, proficient_pericias: u.proficientPericias, inventory: u.inventory }; await supabase.from('characters').update(d).eq('id', u.id); };
+  const handleProgressionChange = (updates) => { if (updates.type === 'attribute_increase') handleUpdateCharacter({ ...character, attributes: { ...character.attributes, [updates.attribute]: character.attributes[updates.attribute] + 1 } }); else handleUpdateCharacter({ ...character, ...updates }); };
+  const handleImageUpload = async (f) => { const path = `public/${user.id}/${user.id}-${Date.now()}.${f.name.split('.').pop()}`; await supabase.storage.from('character-images').upload(path, f); fetchUserImages(); };
+  const fetchUserImages = async () => { if (!user) return; const { data } = await supabase.storage.from('character-images').list(`public/${user.id}`, { limit: 100, sortBy: { column: 'created_at', order: 'desc' }}); if (data) setUserImages(data.map(f => ({ id: f.id, name: f.name, publicURL: supabase.storage.from('character-images').getPublicUrl(`public/${user.id}/${f.name}`).data.publicUrl }))); };
+  const handleSelectImage = async (url) => { handleUpdateCharacter({ ...character, imageUrl: url }); setIsImageTrayOpen(false); };
+  const handleProficiencySelect = async (attr) => { handleUpdateCharacter({ ...character, proficientAttribute: attr }); setIsProficiencyModalOpen(false); };
+  const handleOpenImageTray = () => { fetchUserImages(); setIsImageTrayOpen(true); };
+
+  const addRollToHistory = (r) => { 
+      setRollHistory(prev => [r, ...prev].slice(0, 15)); 
+      setIsHistoryOpen(true); 
+      if (combatData?.status === 'active') handleSendLog(r.name, { total: r.total, roll: r.roll, modifier: r.modifier }, r.damageFormula, r.weaponCategory, r.damageBonus);
+  };
+  const handleClearHistory = () => { setRollHistory([]); };
+
+  const handleHistoryDamageRoll = (historyItem) => {
+    let multiplier = (historyItem.roll === 20 && (historyItem.weaponCategory?.toLowerCase().includes('pesada') || historyItem.weaponCategory?.toLowerCase() === 'p')) ? 3 : (historyItem.roll === 20 ? 2 : 1);
+    let finalFormula = historyItem.damageFormula;
+    if (multiplier > 1 && finalFormula) { const match = finalFormula.match(/^(\d+)d(\d+)/); if (match) finalFormula = `${parseInt(match[1]) * multiplier}d${match[2]}`; }
+    setDamageModalData({ title: `Dano: ${historyItem.name}`, diceFormula: finalFormula, modifier: historyItem.damageBonus || 0, modifierLabel: 'Bônus' });
   };
 
   const handleSendLog = (actionName, result, damageFormula, weaponCategory, damageBonus) => {
@@ -129,101 +161,7 @@ function AppContent() {
       }
   };
 
-  const fetchUserImages = async () => { 
-    if (!user) return; 
-    const { data } = await supabase.storage.from('character-images').list(`public/${user.id}`, { limit: 100, sortBy: { column: 'created_at', order: 'desc' }});
-    if (data) { const urls = data.map(f => ({ id: f.id, name: f.name, publicURL: supabase.storage.from('character-images').getPublicUrl(`public/${user.id}/${f.name}`).data.publicUrl })); setUserImages(urls); }
-  };
-
-  const handleSaveCharacter = async (data) => { 
-      const dbPayload = {
-          user_id: user.id,
-          name: data.name,
-          clan_id: data.clanId,
-          fighting_style: data.fightingStyle,
-          innate_body_id: data.innateBodyId,
-          body_refinement_level: data.bodyRefinementLevel,
-          cultivation_stage: data.cultivationStage,
-          mastery_level: data.masteryLevel,
-          attributes: data.attributes,
-          stats: data.stats,
-          proficient_pericias: data.proficientPericias,
-          inventory: defaultInventory,
-      };
-
-      const { data: r, error } = await supabase
-          .from('characters')
-          .insert([dbPayload]) 
-          .select()
-          .single();
-      
-      if (error) {
-          console.error("Erro ao criar personagem:", error);
-          showNotification("Erro ao criar: " + error.message, "error");
-          return;
-      }
-
-      setCharacter(mapToCamelCase(r)); 
-  };
-  
-  const handleDeleteCharacter = async () => { await supabase.from('characters').delete().eq('id', character.id); setCharacter(null); };
-  
-  const handleUpdateCharacter = async (u) => { 
-      const d = { proficient_attribute: u.proficientAttribute, name: u.name, clan_id: u.clanId, fighting_style: u.fightingStyle, innate_body_id: u.innateBodyId, image_url: u.imageUrl, body_refinement_level: u.bodyRefinement_level, cultivation_stage: u.cultivationStage, mastery_level: u.mastery_level, attributes: u.attributes, stats: u.stats, proficient_pericias: u.proficientPericias, inventory: u.inventory }; 
-      
-      const { data } = await supabase.from('characters').update(d).eq('id', u.id).select().single(); 
-      
-      if(data) {
-          const mappedChar = mapToCamelCase(data);
-          setCharacter({ ...mappedChar, techniques: u.techniques }); 
-      }
-  };
-  
-  const handleProgressionChange = (updates) => { 
-      if (updates.type === 'attribute_increase') { 
-          handleUpdateCharacter({ ...character, attributes: { ...character.attributes, [updates.attribute]: character.attributes[updates.attribute] + 1 } }); 
-      } else { 
-          handleUpdateCharacter({ ...character, ...updates }); 
-      } 
-  };
-  
-  const handleImageUpload = async (f) => { const path = `public/${user.id}/${user.id}-${Date.now()}.${f.name.split('.').pop()}`; await supabase.storage.from('character-images').upload(path, f); await fetchUserImages(); };
-  const handleSelectImage = async (url) => { handleUpdateCharacter({ ...character, imageUrl: url }); setIsImageTrayOpen(false); };
-  const handleProficiencySelect = async (attr) => { handleUpdateCharacter({ ...character, proficientAttribute: attr }); setIsProficiencyModalOpen(false); };
-  
-  const addRollToHistory = (r) => { 
-      setRollHistory(prev => [r, ...prev].slice(0, 15)); 
-      setIsHistoryOpen(true); 
-      handleSendLog(r.name, { total: r.total, roll: r.roll, modifier: r.modifier }, r.damageFormula || null, r.weaponCategory || null, r.damageBonus || 0);
-  };
-  
-  const handleClearHistory = () => { setRollHistory([]); };
-  const handleOpenImageTray = () => { fetchUserImages(); setIsImageTrayOpen(true); };
-
-  const handleHistoryDamageRoll = (historyItem) => {
-    let multiplier = 1;
-    if (historyItem.roll === 20) {
-        const cat = (historyItem.weaponCategory || '').toLowerCase();
-        multiplier = (cat === 'pesada' || cat === 'p') ? 3 : 2;
-    }
-    let finalFormula = historyItem.damageFormula;
-    if (multiplier > 1 && finalFormula) {
-        const match = finalFormula.match(/^(\d+)d(\d+)/);
-        if (match) {
-            const count = parseInt(match[1], 10) * multiplier;
-            const faces = match[2];
-            finalFormula = `${count}d${faces}`;
-        }
-    }
-    setDamageModalData({
-        title: `Dano: ${historyItem.name}`,
-        diceFormula: finalFormula,
-        modifier: historyItem.damageBonus || 0, 
-        modifierLabel: 'Bônus'
-    });
-  };
-
-  if (isLoading) return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
+  if (isAuthLoading) return <div className="min-h-screen flex items-center justify-center">Iniciando...</div>;
   if (!user) return <AuthPage />;
 
   return (
@@ -245,7 +183,7 @@ function AppContent() {
                 onTrain={handleProgressionChange}
                 combatData={combatData}
                 onEndTurn={handleEndPlayerTurn}
-                onForceRefresh={forceRefresh}
+                onForceRefresh={fetchCharacterOnly}
               />
             ) : <SheetManager onSave={handleSaveCharacter} />
           )}
