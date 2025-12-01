@@ -15,11 +15,12 @@ import GameMasterPanel from './pages/GameMasterPanel.jsx';
 import InitiativeTracker from './components/combat/InitiativeTracker.jsx';
 import InitiativeRollModal from './components/combat/InitiativeRollModal.jsx';
 import RollTestModal from './components/character-sheet/RollTestModal.jsx';
-import ImageViewerModal from './components/gm/ImageViewerModal.jsx'; // Importação do Modal de Imagem
+import ImageViewerModal from './components/gm/ImageViewerModal.jsx';
 import { ArrowPathIcon } from '@heroicons/react/24/solid';
 
 const defaultInventory = {
-  weapon: { name: '', damage: '', attribute: '', properties: '' },
+  weapon: { name: '', damage: '', attribute: '', properties: '', category: '' },
+  weapons: [],
   armor: { type: 'none', properties: '' },
   general: [],
   wallet: { gold: 0, silver: 0, copper: 0 }
@@ -102,10 +103,10 @@ function AppContent() {
     finally { setCharacterLoading(false); }
   }, [user, profile]);
 
+  // Função usada pelo Re-focus e pelo refresh interno (se necessário)
   const handleManualSyncButton = async () => {
       await fetchCharacterOnly();
       if (forceRefresh) forceRefresh();
-      showNotification("Sincronizado!", "success");
   };
 
   // --- EFEITOS DE CARREGAMENTO ---
@@ -121,7 +122,7 @@ function AppContent() {
     }
   }, [user, profile, isAuthLoading, fetchCharacterOnly]);
 
-  // Realtime da Ficha (Atualização silenciosa)
+  // Realtime da Ficha
   useEffect(() => {
     if (!character?.id) return;
     const charChannel = supabase
@@ -133,7 +134,7 @@ function AppContent() {
     return () => { supabase.removeChannel(charChannel); };
   }, [character?.id, fetchCharacterOnly]);
 
-  // Re-focus Refresh (Atualiza ao voltar para a aba)
+  // Re-focus Refresh
   useEffect(() => {
     const handleReFocus = () => {
         const now = Date.now();
@@ -149,21 +150,18 @@ function AppContent() {
     return () => window.removeEventListener('focus', handleReFocus);
   }, [character, fetchCharacterOnly, forceRefresh]);
 
-  // --- LISTENER DA IMAGEM PÚBLICA (PROJEÇÃO) ---
+  // --- LISTENER DA IMAGEM PÚBLICA ---
   useEffect(() => {
     if (!user) return;
 
-    // 1. Busca estado inicial
     const fetchPublicImage = async () => {
         const { data } = await supabase.from('public_view').select('image_url').limit(1).maybeSingle();
         if (data && data.image_url) {
-            console.log("Imagem inicial carregada:", data.image_url);
             setPublicImage(data.image_url);
         }
     };
     fetchPublicImage();
 
-    // 2. Escuta mudanças em tempo real na tabela public_view
     const channel = supabase
         .channel('public-image-viewer')
         .on('postgres_changes', { 
@@ -171,8 +169,6 @@ function AppContent() {
             schema: 'public', 
             table: 'public_view' 
         }, (payload) => {
-            console.log("Sinal Realtime Imagem:", payload);
-            
             if (payload.eventType === 'DELETE') {
                 setPublicImage(null);
             } else {
@@ -226,20 +222,11 @@ function AppContent() {
 
   return (
     <div className="relative min-h-screen">
-      {/* RASTREADOR DE INICIATIVA */}
       {combatData?.status === 'active' && <InitiativeTracker turnOrder={combatData.turn_order} currentIndex={combatData.current_turn_index} isDrawerOpen={isHistoryOpen} />}
       
-      {/* CONTEÚDO PRINCIPAL */}
       {profile?.role === 'gm' ? <GameMasterPanel /> : (
         <main>
-          {character && (
-              <div className="fixed top-4 right-4 z-50">
-                  <button onClick={handleManualSyncButton} className="bg-white/90 backdrop-blur text-purple-700 p-3 rounded-full shadow-lg border border-purple-200 hover:bg-purple-50 transition-all flex items-center gap-2 group" title="Sincronizar Dados">
-                      <ArrowPathIcon className="h-6 w-6 group-active:animate-spin" /> 
-                      <span className="font-bold text-sm hidden md:inline">Sincronizar</span>
-                  </button>
-              </div>
-          )}
+          {/* BOTÃO DE SINCRONIZAÇÃO REMOVIDO AQUI */}
 
           {character && <InitiativeRollModal isOpen={showInitiativeRoll} onRollInitiative={handlePlayerInitiativeRoll} agilityBonus={character.attributes.agility} />}
           
@@ -268,7 +255,6 @@ function AppContent() {
         </main>
       )}
 
-      {/* MODAIS E DRAWERS GLOBAIS */}
       {(character || profile?.role === 'gm') && <RollHistoryDrawer history={rollHistory} isOpen={isHistoryOpen} onToggle={() => setIsHistoryOpen(!isHistoryOpen)} onClearHistory={handleClearHistory} onRollDamage={handleHistoryDamageRoll} />}
       <ImageSelectionTray isOpen={isImageTrayOpen} onClose={() => setIsImageTrayOpen(false)} images={userImages} onSelect={handleSelectImage} onUpload={handleImageUpload} />
       <ProficiencyChoiceModal isOpen={isProficiencyModalOpen} onSelect={handleProficiencySelect} />
@@ -276,7 +262,6 @@ function AppContent() {
       
       {notification && <NotificationToast message={notification.message} type={notification.type} onClose={() => setNotification(null)} />}
       
-      {/* MODAL DE PROJEÇÃO (Visível para jogadores se houver imagem pública) */}
       {profile?.role !== 'gm' && (
           <ImageViewerModal 
               isOpen={!!publicImage} 

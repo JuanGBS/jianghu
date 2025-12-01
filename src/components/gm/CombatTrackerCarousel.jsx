@@ -34,7 +34,9 @@ function CombatTrackerCarousel({
             const inventory = realData.inventory || { armor: { type: 'none' } };
             const attributes = realData.attributes || { vigor: 0, agility: 0, discipline: 0 };
             const clan = CLANS_DATA[realData.clanId] || { baseHp: 5 };
-            const innateBody = INNATE_BODIES.find(b => b.id === realData.innateBodyId) || { effects: {} };
+            
+            // CORREÇÃO: Nome da variável padronizado para innateBodyData
+            const innateBodyData = INNATE_BODIES.find(b => b.id === realData.innateBodyId) || { effects: {} };
             
             // 1. Recupera Bônus
             const bonusMaxHp = rawStats.bonusMaxHp || 0;
@@ -54,17 +56,20 @@ function CombatTrackerCarousel({
             }
 
             // HP
-            const baseHp = (clan.baseHp || 5) + (innateBody.effects?.stat_bonus?.baseHp || 0);
+            const baseHp = (clan.baseHp || 5) + (innateBodyData.effects?.stat_bonus?.baseHp || 0);
             const refLevel = BODY_REFINEMENT_LEVELS.find(l => l.id === (realData.bodyRefinementLevel || 0));
-            const refMult = (refLevel?.multiplier || 1) + (innateBody.effects?.body_refinement_multiplier_bonus || 0);
-            const calculatedHp = Math.floor((baseHp + attributes.vigor) * refMult);
+            const refMult = (refLevel?.multiplier || 1) + (innateBodyData.effects?.body_refinement_multiplier_bonus || 0);
+            const calculatedHp = Math.floor(((baseHp + attributes.vigor) * refMult));
 
             // Chi
             const baseChi = 5 + attributes.discipline;
             const cultStage = CULTIVATION_STAGES.find(s => s.id === (realData.cultivationStage || 0));
             const cultMult = cultStage?.multiplier || 1;
             const masteryBonus = MASTERY_LEVELS.find(l => l.id === (realData.masteryLevel || 0))?.bonus || 0;
+            
+            // CORREÇÃO: Agora usa a variável correta definida acima
             const innateChiPerMastery = innateBodyData.effects?.max_chi_per_mastery || 0;
+            
             const masteryChiBonus = masteryBonus + ((realData.masteryLevel || 0) * innateChiPerMastery);
             const calculatedChi = Math.floor((baseChi * cultMult) + masteryChiBonus);
 
