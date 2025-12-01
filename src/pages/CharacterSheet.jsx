@@ -15,7 +15,7 @@ import Modal from '../components/ui/Modal';
 import TechniqueCreatorForm from '../components/character-sheet/TechniqueCreatorForm';
 import ConfirmationModal from '../components/ui/ConfirmationModal';
 import RollTestModal from '../components/character-sheet/RollTestModal';
-import { PhotoIcon, StarIcon, ArrowUturnLeftIcon, PencilSquareIcon } from '@heroicons/react/24/solid';
+import { PhotoIcon, StarIcon, ArrowUturnLeftIcon, PencilSquareIcon, WrenchScrewdriverIcon } from '@heroicons/react/24/solid';
 import CombatPage from './CombatPage';
 import AttackChoiceModal from '../components/character-sheet/AttackChoiceModal';
 import MinorActionModal from '../components/character-sheet/MinorActionModal';
@@ -40,64 +40,84 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
   const [isMinorActionModalOpen, setIsMinorActionModalOpen] = useState(false);
 
   // ------------------------------------------------------------------
-  // CÁLCULOS DE STATUS (HP, CHI, CA)
+  // CÁLCULOS DE STATUS (HP, CHI, CA) + MODIFICADORES
   // ------------------------------------------------------------------
   const inventory = character.inventory || { armor: { type: 'none' } };
   const armorType = inventory.armor?.type || 'none';
   const selectedArmor = ARMOR_TYPES.find(a => a.id === armorType) || ARMOR_TYPES.find(a => a.id === 'none');
   
-  // HP
+  // 1. Recupera Bônus Manuais (Se não existirem, assume 0)
+  const bonusMaxHp = character.stats.bonusMaxHp || 0;
+  const bonusMaxChi = character.stats.bonusMaxChi || 0;
+  const bonusAC = character.stats.bonusArmorClass || 0;
+
+  // 2. Cálculos Base (Fórmulas do Livro)
+  
+  // HP Base
   const initialClanHp = CLANS_DATA[character.clanId]?.baseHp || 0;
   const innateHpBonus = innateBodyData.effects?.stat_bonus?.baseHp || 0;
   const effectiveBaseHp = initialClanHp + innateHpBonus;
   const refinementLevel = BODY_REFINEMENT_LEVELS.find(l => l.id === (character.bodyRefinementLevel || 0));
   const refinementMultiplierBonus = innateBodyData.effects?.body_refinement_multiplier_bonus || 0;
   const finalRefinementMultiplier = (refinementLevel?.multiplier || 1) + (refinementLevel && refinementLevel.id > 0 ? refinementMultiplierBonus : 0);
-  const calcMaxHp = Math.floor((effectiveBaseHp + character.attributes.vigor) * finalRefinementMultiplier);
   
-  // Chi
+  const calculatedHpBase = Math.floor((effectiveBaseHp + character.attributes.vigor) * finalRefinementMultiplier);
+  
+  // Chi Base
   const baseChi = 5 + character.attributes.discipline;
   const cultivationMultiplier = CULTIVATION_STAGES.find(s => s.id === (character.cultivationStage || 0))?.multiplier || 1;
   const masteryLevelValue = character.masteryLevel || 0;
   const masteryFlatBonus = MASTERY_LEVELS.find(l => l.id === masteryLevelValue)?.bonus || 0;
   const innateChiPerMastery = innateBodyData.effects?.max_chi_per_mastery || 0;
-  const calcMaxChi = Math.floor(baseChi * cultivationMultiplier) + masteryFlatBonus + (masteryLevelValue * innateChiPerMastery);
   
-  // CA
-  let calcArmorClass = 10; 
+  const calculatedChiBase = Math.floor((baseChi * cultivationMultiplier) + masteryFlatBonus + (masteryLevelValue * innateChiPerMastery));
+  
+  // CA Base
+  let calculatedACBase = 10; 
   let skillPenalty = 0; 
 
   if (selectedArmor) {
     skillPenalty = selectedArmor.effects.skillPenalty || 0;
     if (selectedArmor.effects.mode === 'fixed') {
-       calcArmorClass = selectedArmor.effects.baseValue;
+       calculatedACBase = selectedArmor.effects.baseValue;
     } else {
-       calcArmorClass = 10 + character.attributes.agility;
+       calculatedACBase = 10 + character.attributes.agility;
     }
   }
 
-  const finalMaxHp = (isGmMode && character.stats.manualMaxHp) ? character.stats.manualMaxHp : calcMaxHp;
-  const finalMaxChi = (isGmMode && character.stats.manualMaxChi) ? character.stats.manualMaxChi : calcMaxChi;
-  const finalArmorClass = (isGmMode && character.stats.manualArmorClass) ? character.stats.manualArmorClass : calcArmorClass;
+  // 3. Aplicação da Lógica: (Manual OU Calculado) + Bônus
+  
+  // HP Final
+  const baseMaxHp = (isGmMode && character.stats.manualMaxHp !== undefined && character.stats.manualMaxHp !== null) 
+      ? character.stats.manualMaxHp 
+      : calculatedHpBase;
+  const finalMaxHp = baseMaxHp + bonusMaxHp;
+
+  // Chi Final
+  const baseMaxChi = (isGmMode && character.stats.manualMaxChi !== undefined && character.stats.manualMaxChi !== null)
+      ? character.stats.manualMaxChi
+      : calculatedChiBase;
+  const finalMaxChi = baseMaxChi + bonusMaxChi;
+
+  // CA Final
+  const baseArmorClass = (isGmMode && character.stats.manualArmorClass !== undefined && character.stats.manualArmorClass !== null)
+      ? character.stats.manualArmorClass
+      : calculatedACBase;
+  const finalArmorClass = baseArmorClass + bonusAC;
 
   // ------------------------------------------------------------------
-  // LÓGICA DE TURNO (CORRIGIDA)
+  // LÓGICA DE TURNO
   // ------------------------------------------------------------------
   const currentTurnCharacter = combatData?.status === 'active' && combatData.turn_order ? combatData.turn_order[combatData.current_turn_index] : null;
   const isMyTurn = currentTurnCharacter?.character_id === character.id;
   
-  // REF para evitar spam de notificação (Correção do Tooltip travado)
   const lastNotifiedTurnIndex = useRef(null);
 
   useEffect(() => {
-    // Só roda a lógica se for meu turno E se o índice do turno mudou desde a última vez que avisei
     if (isMyTurn && combatData?.current_turn_index !== lastNotifiedTurnIndex.current) {
-      
       setCombatState({ actionsUsed: { movement: false, major: false, minor: false }, isConcentrated: false });
       setActiveTab('combat');
       showNotification("É o seu turno! Ações renovadas.", "success");
-      
-      // Atualiza o ref para não avisar de novo até o próximo turno real
       lastNotifiedTurnIndex.current = combatData?.current_turn_index;
     }
   }, [isMyTurn, combatData?.current_turn_index, showNotification]);
@@ -213,6 +233,7 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
   };
 
   const handleStatChange = (statKey, newValue) => {
+    if (isNaN(newValue)) return;
     const validatedValue = Math.max(0, newValue);
     const updatedCharacter = { ...character, stats: { ...character.stats, [statKey]: validatedValue } };
     onUpdateCharacter(updatedCharacter);
@@ -377,10 +398,9 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
           </div>
         </div>
         
-        {/* COLUNA 3: CONTEÚDO DINÂMICO (CORRIGIDO: Removida a função interna) */}
+        {/* COLUNA 3: CONTEÚDO DINÂMICO */}
         <div className="lg:col-span-1 w-full self-start flex flex-col space-y-6">
             
-            {/* COMPONENTES DE ABAS - Renderização Condicional Direta para evitar Remount */}
             {activeTab === 'techniques' && (
                 <TechniquesPage character={character} onDeleteTechnique={handleTechniqueDelete} openCreateModal={openCreateModal} openEditModal={openEditModal} />
             )}
@@ -409,7 +429,6 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
                 <ProgressionPage character={character} onTrain={onTrain} showNotification={showNotification} isGmMode={isGmMode} onUpdateCharacter={onUpdateCharacter} />
             )}
 
-            {/* DEFAULT VIEW (FICHA) */}
             {activeTab === 'sheet' && (
                 <>
                     <div className="bg-white p-6 rounded-2xl shadow-lg w-full">
@@ -422,12 +441,13 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
                     <div className="bg-white p-6 rounded-2xl shadow-lg w-full flex flex-col">
                         <div>
                             <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-xl font-semibold text-brand-text">Status de Combate</h3>
-                            {isGmMode && <span className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded font-bold">Editável</span>}
+                                <h3 className="text-xl font-semibold text-brand-text">Status de Combate</h3>
+                                {isGmMode && <span className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded font-bold">Editável</span>}
                             </div>
                             <div className="bg-gray-100 p-4 rounded-lg flex justify-around text-center gap-2">
                                 <div className="flex flex-col items-center">
                                     <span className="text-sm text-gray-500 mb-1 font-semibold">PV</span>
+                                    {/* Usa finalMaxHp que inclui o bônus */}
                                     {isGmMode ? <QuickStatInput value={character.stats.currentHp} maxValue={finalMaxHp} onSave={(val) => handleManualStatEdit('currentHp', val)} className="text-2xl font-bold text-gray-700 mb-1 w-20 text-center bg-transparent" /> : <EditableStat label="" currentValue={character.stats.currentHp} maxValue={finalMaxHp} onSave={(newValue) => handleStatChange('currentHp', newValue)} colorClass="text-green-600" />}
                                 </div>
                                 <div className="flex flex-col items-center">
@@ -440,6 +460,45 @@ function CharacterSheet({ character, onDelete, onUpdateCharacter, showNotificati
                                 </div>
                             </div>
                         </div>
+
+                        {/* --- SEÇÃO: MODIFICADORES DE GM (Visível só para o Mestre) --- */}
+                        {isGmMode && (
+                          <div className="mt-4 pt-4 border-t border-gray-200">
+                              <h4 className="text-sm font-bold text-gray-500 uppercase mb-2 flex items-center gap-1">
+                                <WrenchScrewdriverIcon className="h-4 w-4"/> Ajustes (Bônus/Penalidade)
+                              </h4>
+                              <div className="grid grid-cols-3 gap-2">
+                                <div className="bg-purple-50 p-2 rounded text-center border border-purple-100">
+                                  <span className="text-[10px] text-purple-800 font-bold block">PV MÁX</span>
+                                  <QuickStatInput 
+                                    value={bonusMaxHp > 0 ? `+${bonusMaxHp}` : bonusMaxHp} 
+                                    onSave={(val) => handleManualStatEdit('bonusMaxHp', val)} 
+                                    className="text-sm font-bold text-purple-900 bg-transparent text-center w-full"
+                                    placeholder="+0"
+                                  />
+                                </div>
+                                <div className="bg-purple-50 p-2 rounded text-center border border-purple-100">
+                                  <span className="text-[10px] text-purple-800 font-bold block">CHI MÁX</span>
+                                  <QuickStatInput 
+                                    value={bonusMaxChi > 0 ? `+${bonusMaxChi}` : bonusMaxChi} 
+                                    onSave={(val) => handleManualStatEdit('bonusMaxChi', val)} 
+                                    className="text-sm font-bold text-purple-900 bg-transparent text-center w-full"
+                                    placeholder="+0"
+                                  />
+                                </div>
+                                <div className="bg-purple-50 p-2 rounded text-center border border-purple-100">
+                                  <span className="text-[10px] text-purple-800 font-bold block">BÔNUS CA</span>
+                                  <QuickStatInput 
+                                    value={bonusAC > 0 ? `+${bonusAC}` : bonusAC} 
+                                    onSave={(val) => handleManualStatEdit('bonusArmorClass', val)} 
+                                    className="text-sm font-bold text-purple-900 bg-transparent text-center w-full"
+                                    placeholder="+0"
+                                  />
+                                </div>
+                              </div>
+                          </div>
+                        )}
+
                         <div className="flex justify-between items-center pt-4 mt-auto">
                             <button onClick={() => setIsDeleteModalOpen(true)} className="text-center text-sm text-gray-500 hover:text-red-600 font-semibold">Apagar Personagem</button>
                             {!onBack && (<button onClick={signOut} className="text-center text-sm text-gray-500 hover:text-blue-600 font-semibold">Logout</button>)}

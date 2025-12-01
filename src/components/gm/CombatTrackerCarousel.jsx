@@ -27,7 +27,7 @@ function CombatTrackerCarousel({
           const realData = allCharacters.find(c => c.id === participant.character_id);
           const rawStats = realData?.stats || {};
 
-          // --- Lógica de Cálculo de Stats (Replicada para garantir consistência visual) ---
+          // --- Lógica de Cálculo de Stats (Com Bônus de GM) ---
           const calculateDynamicStats = () => {
             if (!realData) return { calcMaxHp: 10, calcMaxChi: 10, calcAC: 10 };
             
@@ -36,40 +36,62 @@ function CombatTrackerCarousel({
             const clan = CLANS_DATA[realData.clanId] || { baseHp: 5 };
             const innateBody = INNATE_BODIES.find(b => b.id === realData.innateBodyId) || { effects: {} };
             
-            // CA (Classe de Armadura)
+            // 1. Recupera Bônus
+            const bonusMaxHp = rawStats.bonusMaxHp || 0;
+            const bonusMaxChi = rawStats.bonusMaxChi || 0;
+            const bonusAC = rawStats.bonusArmorClass || 0;
+
+            // 2. Cálculos Base
+            // CA
             const armorType = inventory.armor?.type || 'none';
             const selectedArmor = ARMOR_TYPES.find(a => a.id === armorType) || ARMOR_TYPES.find(a => a.id === 'none');
-            const agilityPenalty = selectedArmor.effects.agilityPenalty || 0;
-            let calcAC = 10 + attributes.agility;
-            if (selectedArmor.effects.baseArmorClass !== null && selectedArmor.effects.baseArmorClass !== undefined) {
-                calcAC = selectedArmor.effects.baseArmorClass + attributes.agility + agilityPenalty;
+            
+            let baseAC = 10;
+            if (selectedArmor.effects.mode === 'fixed') {
+                baseAC = selectedArmor.effects.baseValue;
+            } else {
+                baseAC = 10 + attributes.agility;
             }
 
-            // HP (Pontos de Vida)
+            // HP
             const baseHp = (clan.baseHp || 5) + (innateBody.effects?.stat_bonus?.baseHp || 0);
             const refLevel = BODY_REFINEMENT_LEVELS.find(l => l.id === (realData.bodyRefinementLevel || 0));
             const refMult = (refLevel?.multiplier || 1) + (innateBody.effects?.body_refinement_multiplier_bonus || 0);
-            const calcMaxHp = Math.floor((baseHp + attributes.vigor) * refMult);
+            const calculatedHp = Math.floor((baseHp + attributes.vigor) * refMult);
 
             // Chi
             const baseChi = 5 + attributes.discipline;
             const cultStage = CULTIVATION_STAGES.find(s => s.id === (realData.cultivationStage || 0));
             const cultMult = cultStage?.multiplier || 1;
             const masteryBonus = MASTERY_LEVELS.find(l => l.id === (realData.masteryLevel || 0))?.bonus || 0;
-            const calcMaxChi = Math.floor(baseChi * cultMult) + masteryBonus;
+            const innateChiPerMastery = innateBodyData.effects?.max_chi_per_mastery || 0;
+            const masteryChiBonus = masteryBonus + ((realData.masteryLevel || 0) * innateChiPerMastery);
+            const calculatedChi = Math.floor((baseChi * cultMult) + masteryChiBonus);
 
-            return { calcMaxHp, calcMaxChi, calcAC };
+            // 3. Aplicação da Prioridade: (Manual OU Calculado) + Bônus
+            
+            // Se tiver valor manual salvo, usa ele como base. Se não, usa o calculado.
+            const effectiveBaseHp = (rawStats.manualMaxHp !== undefined && rawStats.manualMaxHp !== null) ? rawStats.manualMaxHp : calculatedHp;
+            const effectiveBaseChi = (rawStats.manualMaxChi !== undefined && rawStats.manualMaxChi !== null) ? rawStats.manualMaxChi : calculatedChi;
+            const effectiveBaseAC = (rawStats.manualArmorClass !== undefined && rawStats.manualArmorClass !== null) ? rawStats.manualArmorClass : baseAC;
+
+            // Soma os bônus no final
+            return { 
+                calcMaxHp: effectiveBaseHp + bonusMaxHp, 
+                calcMaxChi: effectiveBaseChi + bonusMaxChi, 
+                calcAC: effectiveBaseAC + bonusAC 
+            };
           };
 
           const { calcMaxHp, calcMaxChi, calcAC } = calculateDynamicStats();
 
-          // Prioriza valores manuais se existirem
+          // Objeto final para renderização
           const stats = {
               currentHp: rawStats.currentHp || 0,
               currentChi: rawStats.currentChi || 0,
-              maxHp: (rawStats.manualMaxHp !== undefined && rawStats.manualMaxHp !== null) ? rawStats.manualMaxHp : calcMaxHp,
-              maxChi: (rawStats.manualMaxChi !== undefined && rawStats.manualMaxChi !== null) ? rawStats.manualMaxChi : calcMaxChi,
-              armorClass: (rawStats.manualArmorClass !== undefined && rawStats.manualArmorClass !== null) ? rawStats.manualArmorClass : calcAC
+              maxHp: calcMaxHp,
+              maxChi: calcMaxChi,
+              armorClass: calcAC
           };
 
           return (

@@ -15,6 +15,8 @@ import GameMasterPanel from './pages/GameMasterPanel.jsx';
 import InitiativeTracker from './components/combat/InitiativeTracker.jsx';
 import InitiativeRollModal from './components/combat/InitiativeRollModal.jsx';
 import RollTestModal from './components/character-sheet/RollTestModal.jsx';
+import ImageViewerModal from './components/gm/ImageViewerModal.jsx'; // Importação do Modal de Imagem
+import { ArrowPathIcon } from '@heroicons/react/24/solid';
 
 const defaultInventory = {
   weapon: { name: '', damage: '', attribute: '', properties: '' },
@@ -39,7 +41,19 @@ const mapToCamelCase = (data) => {
     masteryLevel: data.mastery_level, 
     attributes: data.attributes, 
     stats: data.stats, 
-    techniques: data.techniques ? data.techniques.map(t => ({ id: t.id, name: t.name, type: t.type, action: t.action, cost: t.cost, damage: t.damage, attribute: t.attribute, effect: t.effect, requirements: t.requirements, requiresRoll: t.requires_roll, concentration: t.concentration })) : [],
+    techniques: data.techniques ? data.techniques.map(t => ({
+      id: t.id,
+      name: t.name,
+      type: t.type,
+      action: t.action,
+      cost: t.cost,
+      damage: t.damage,
+      attribute: t.attribute,
+      effect: t.effect,
+      requirements: t.requirements,
+      requiresRoll: t.requires_roll,
+      concentration: t.concentration
+    })) : [],
     proficientPericias: data.proficient_pericias || [], 
     inventory: data.inventory || defaultInventory, 
     createdAt: data.created_at, 
@@ -55,8 +69,14 @@ function AppContent() {
   const [notification, setNotification] = useState(null);
   const lastFetchTime = useRef(0);
   
+  // Estado para controlar a imagem projetada pelo mestre
+  const [publicImage, setPublicImage] = useState(null);
+
   const [rollHistory, setRollHistory] = useState(() => {
-      try { const saved = localStorage.getItem('rollHistory'); return saved ? JSON.parse(saved) : []; } catch (e) { return []; }
+      try {
+          const saved = localStorage.getItem('rollHistory');
+          return saved ? JSON.parse(saved) : [];
+      } catch (e) { return []; }
   });
   
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -71,7 +91,7 @@ function AppContent() {
 
   const { combatData, showInitiativeRoll, setShowInitiativeRoll, sendInitiative, endTurn, forceRefresh, sendPlayerLog } = usePlayerCombat(character, showNotification);
 
-  // --- BUSCA INICIAL ---
+  // --- BUSCA DE FICHA ---
   const fetchCharacterOnly = useCallback(async () => {
     if (!user || profile?.role === 'gm') { setCharacterLoading(false); return; }
     try {
@@ -81,6 +101,14 @@ function AppContent() {
     } catch (err) { console.error(err); } 
     finally { setCharacterLoading(false); }
   }, [user, profile]);
+
+  const handleManualSyncButton = async () => {
+      await fetchCharacterOnly();
+      if (forceRefresh) forceRefresh();
+      showNotification("Sincronizado!", "success");
+  };
+
+  // --- EFEITOS DE CARREGAMENTO ---
 
   useEffect(() => {
     if (isAuthLoading) return;
@@ -93,7 +121,7 @@ function AppContent() {
     }
   }, [user, profile, isAuthLoading, fetchCharacterOnly]);
 
-  // --- REALTIME AUTOMÁTICO (JOGADOR) ---
+  // Realtime da Ficha (Atualização silenciosa)
   useEffect(() => {
     if (!character?.id) return;
     const charChannel = supabase
@@ -105,7 +133,7 @@ function AppContent() {
     return () => { supabase.removeChannel(charChannel); };
   }, [character?.id, fetchCharacterOnly]);
 
-  // --- RE-FOCUS REFRESH ---
+  // Re-focus Refresh (Atualiza ao voltar para a aba)
   useEffect(() => {
     const handleReFocus = () => {
         const now = Date.now();
@@ -121,22 +149,60 @@ function AppContent() {
     return () => window.removeEventListener('focus', handleReFocus);
   }, [character, fetchCharacterOnly, forceRefresh]);
 
+  // --- LISTENER DA IMAGEM PÚBLICA (PROJEÇÃO) ---
+  useEffect(() => {
+    if (!user) return;
+
+    // 1. Busca estado inicial
+    const fetchPublicImage = async () => {
+        const { data } = await supabase.from('public_view').select('image_url').limit(1).maybeSingle();
+        if (data && data.image_url) {
+            console.log("Imagem inicial carregada:", data.image_url);
+            setPublicImage(data.image_url);
+        }
+    };
+    fetchPublicImage();
+
+    // 2. Escuta mudanças em tempo real na tabela public_view
+    const channel = supabase
+        .channel('public-image-viewer')
+        .on('postgres_changes', { 
+            event: '*', 
+            schema: 'public', 
+            table: 'public_view' 
+        }, (payload) => {
+            console.log("Sinal Realtime Imagem:", payload);
+            
+            if (payload.eventType === 'DELETE') {
+                setPublicImage(null);
+            } else {
+                const newUrl = payload.new.image_url;
+                setPublicImage(newUrl);
+                if (newUrl) showNotification("O Mestre está projetando uma imagem!", "info");
+            }
+        })
+        .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [user]);
+
+
   // --- HANDLERS ---
   const handlePlayerInitiativeRoll = (val) => { sendInitiative(val); setShowInitiativeRoll(false); };
   const handleEndPlayerTurn = () => { if (!combatData) return; endTurn(); };
 
-  const handleSaveCharacter = async (data) => { 
-      const dbPayload = { user_id: user.id, name: data.name, clan_id: data.clanId, fighting_style: data.fightingStyle, innate_body_id: data.innateBodyId, body_refinement_level: data.bodyRefinement_level, cultivation_stage: data.cultivation_stage, mastery_level: data.mastery_level, attributes: data.attributes, stats: data.stats, proficient_pericias: data.proficientPericias, inventory: defaultInventory };
-      const { data: r, error } = await supabase.from('characters').insert([dbPayload]).select().single();
-      if (error) showNotification("Erro: " + error.message, "error");
-      else setCharacter(mapToCamelCase(r)); 
+  const handleSendLog = (actionName, result, damageFormula, weaponCategory, damageBonus) => {
+      if (combatData && combatData.status === 'active') {
+          sendPlayerLog(actionName, result, damageFormula, weaponCategory, damageBonus);
+      }
   };
-  
+
+  const fetchUserImages = async () => { if (!user) return; const { data } = await supabase.storage.from('character-images').list(`public/${user.id}`, { limit: 100, sortBy: { column: 'created_at', order: 'desc' }}); if (data) setUserImages(data.map(f => ({ id: f.id, name: f.name, publicURL: supabase.storage.from('character-images').getPublicUrl(`public/${user.id}/${f.name}`).data.publicUrl }))); };
+  const handleSaveCharacter = async (data) => { const dbPayload = { user_id: user.id, name: data.name, clan_id: data.clanId, fighting_style: data.fightingStyle, innate_body_id: data.innateBodyId, body_refinement_level: data.bodyRefinement_level, cultivation_stage: data.cultivation_stage, mastery_level: data.mastery_level, attributes: data.attributes, stats: data.stats, proficient_pericias: data.proficientPericias, inventory: defaultInventory }; const { data: r, error } = await supabase.from('characters').insert([dbPayload]).select().single(); if (error) showNotification("Erro: " + error.message, "error"); else setCharacter(mapToCamelCase(r)); };
   const handleDeleteCharacter = async () => { await supabase.from('characters').delete().eq('id', character.id); setCharacter(null); };
-  const handleUpdateCharacter = async (u) => { setCharacter({ ...u }); const d = { proficient_attribute: u.proficientAttribute, name: u.name, clan_id: u.clanId, fighting_style: u.fightingStyle, innate_body_id: u.innateBodyId, image_url: u.imageUrl, body_refinement_level: u.bodyRefinement_level, cultivation_stage: u.cultivationStage, mastery_level: u.mastery_level, attributes: u.attributes, stats: u.stats, proficient_pericias: u.proficientPericias, inventory: u.inventory }; await supabase.from('characters').update(d).eq('id', u.id); };
+  const handleUpdateCharacter = async (u) => { setCharacter({ ...u }); const d = { proficient_attribute: u.proficientAttribute, name: u.name, clan_id: u.clanId, fighting_style: u.fightingStyle, innate_body_id: u.innateBodyId, image_url: u.imageUrl, body_refinement_level: u.bodyRefinement_level, cultivation_stage: u.cultivation_stage, mastery_level: u.mastery_level, attributes: u.attributes, stats: u.stats, proficient_pericias: u.proficientPericias, inventory: u.inventory }; await supabase.from('characters').update(d).eq('id', u.id); };
   const handleProgressionChange = (updates) => { if (updates.type === 'attribute_increase') handleUpdateCharacter({ ...character, attributes: { ...character.attributes, [updates.attribute]: character.attributes[updates.attribute] + 1 } }); else handleUpdateCharacter({ ...character, ...updates }); };
   const handleImageUpload = async (f) => { const path = `public/${user.id}/${user.id}-${Date.now()}.${f.name.split('.').pop()}`; await supabase.storage.from('character-images').upload(path, f); fetchUserImages(); };
-  const fetchUserImages = async () => { if (!user) return; const { data } = await supabase.storage.from('character-images').list(`public/${user.id}`, { limit: 100, sortBy: { column: 'created_at', order: 'desc' }}); if (data) setUserImages(data.map(f => ({ id: f.id, name: f.name, publicURL: supabase.storage.from('character-images').getPublicUrl(`public/${user.id}/${f.name}`).data.publicUrl }))); };
   const handleSelectImage = async (url) => { handleUpdateCharacter({ ...character, imageUrl: url }); setIsImageTrayOpen(false); };
   const handleProficiencySelect = async (attr) => { handleUpdateCharacter({ ...character, proficientAttribute: attr }); setIsProficiencyModalOpen(false); };
   const handleOpenImageTray = () => { fetchUserImages(); setIsImageTrayOpen(true); };
@@ -155,23 +221,35 @@ function AppContent() {
     setDamageModalData({ title: `Dano: ${historyItem.name}`, diceFormula: finalFormula, modifier: historyItem.damageBonus || 0, modifierLabel: 'Bônus' });
   };
 
-  const handleSendLog = (actionName, result, damageFormula, weaponCategory, damageBonus) => {
-      if (combatData && combatData.status === 'active') {
-          sendPlayerLog(actionName, result, damageFormula, weaponCategory, damageBonus);
-      }
-  };
-
   if (isAuthLoading) return <div className="min-h-screen flex items-center justify-center">Iniciando...</div>;
   if (!user) return <AuthPage />;
 
   return (
     <div className="relative min-h-screen">
+      {/* RASTREADOR DE INICIATIVA */}
       {combatData?.status === 'active' && <InitiativeTracker turnOrder={combatData.turn_order} currentIndex={combatData.current_turn_index} isDrawerOpen={isHistoryOpen} />}
       
+      {/* CONTEÚDO PRINCIPAL */}
       {profile?.role === 'gm' ? <GameMasterPanel /> : (
         <main>
+          {character && (
+              <div className="fixed top-4 right-4 z-50">
+                  <button onClick={handleManualSyncButton} className="bg-white/90 backdrop-blur text-purple-700 p-3 rounded-full shadow-lg border border-purple-200 hover:bg-purple-50 transition-all flex items-center gap-2 group" title="Sincronizar Dados">
+                      <ArrowPathIcon className="h-6 w-6 group-active:animate-spin" /> 
+                      <span className="font-bold text-sm hidden md:inline">Sincronizar</span>
+                  </button>
+              </div>
+          )}
+
           {character && <InitiativeRollModal isOpen={showInitiativeRoll} onRollInitiative={handlePlayerInitiativeRoll} agilityBonus={character.attributes.agility} />}
-          {characterLoading ? <div className="min-h-screen flex items-center justify-center">Carregando Ficha...</div> : (
+          
+          {characterLoading ? (
+              <div className="min-h-screen flex flex-col items-center justify-center gap-4">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-700"></div>
+                  <p className="text-gray-500 font-semibold animate-pulse">Carregando Ficha...</p>
+                  <button onClick={() => setCharacterLoading(false)} className="text-xs text-red-400 hover:underline mt-4">Cancelar carregamento</button>
+              </div>
+          ) : (
             character ? (
               <CharacterSheet 
                 character={character} 
@@ -183,18 +261,29 @@ function AppContent() {
                 onTrain={handleProgressionChange}
                 combatData={combatData}
                 onEndTurn={handleEndPlayerTurn}
-                onForceRefresh={fetchCharacterOnly}
+                onForceRefresh={handleManualSyncButton}
               />
             ) : <SheetManager onSave={handleSaveCharacter} />
           )}
         </main>
       )}
 
+      {/* MODAIS E DRAWERS GLOBAIS */}
       {(character || profile?.role === 'gm') && <RollHistoryDrawer history={rollHistory} isOpen={isHistoryOpen} onToggle={() => setIsHistoryOpen(!isHistoryOpen)} onClearHistory={handleClearHistory} onRollDamage={handleHistoryDamageRoll} />}
       <ImageSelectionTray isOpen={isImageTrayOpen} onClose={() => setIsImageTrayOpen(false)} images={userImages} onSelect={handleSelectImage} onUpload={handleImageUpload} />
       <ProficiencyChoiceModal isOpen={isProficiencyModalOpen} onSelect={handleProficiencySelect} />
       <RollTestModal isOpen={!!damageModalData} onClose={() => setDamageModalData(null)} title={damageModalData?.title} modifier={damageModalData?.modifier} modifierLabel={damageModalData?.modifierLabel} diceFormula={damageModalData?.diceFormula} onRollComplete={(result) => { addRollToHistory({ name: damageModalData.title, roll: result.roll, modifier: result.modifier, total: result.total, damageFormula: null }); }} />
+      
       {notification && <NotificationToast message={notification.message} type={notification.type} onClose={() => setNotification(null)} />}
+      
+      {/* MODAL DE PROJEÇÃO (Visível para jogadores se houver imagem pública) */}
+      {profile?.role !== 'gm' && (
+          <ImageViewerModal 
+              isOpen={!!publicImage} 
+              onClose={() => setPublicImage(null)} 
+              imageUrl={publicImage} 
+          />
+      )}
     </div>
   );
 }

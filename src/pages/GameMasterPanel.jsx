@@ -16,8 +16,7 @@ import CombatTrackerCarousel from "../components/gm/CombatTrackerCarousel";
 import {
   TrashIcon, MagnifyingGlassIcon, PlayIcon, StopIcon, ForwardIcon,
   UserPlusIcon, BoltIcon, FireIcon, UserIcon, SparklesIcon,
-  ArrowPathIcon, // <--- ADICIONADO AQUI
-  PencilSquareIcon, XMarkIcon
+  ArrowPathIcon, PencilSquareIcon, XMarkIcon, PhotoIcon, EyeSlashIcon
 } from "@heroicons/react/24/solid";
 
 const mapToCamelCase = (data) => {
@@ -63,6 +62,9 @@ function GameMasterPanel() {
   
   const logsEndRef = useRef(null);
 
+  // Controle de Imagem Pública
+  const [currentlyShowingImage, setCurrentlyShowingImage] = useState(null);
+
   useEffect(() => {
     if (localLogs && localLogs.length > 0) {
         logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -71,10 +73,11 @@ function GameMasterPanel() {
 
   const fetchAllData = async () => {
     try {
-        const [charsRes, tempsRes, imgsRes] = await Promise.all([
+        const [charsRes, tempsRes, imgsRes, publicRes] = await Promise.all([
             supabase.from("characters").select("*").order("name", { ascending: true }),
             supabase.from("npc_templates").select("*").order("name", { ascending: true }),
-            supabase.from("gm_images").select("*").order("created_at", { ascending: false }).limit(50)
+            supabase.from("gm_images").select("*").order("created_at", { ascending: false }).limit(50),
+            supabase.from("public_view").select("image_url").maybeSingle()
         ]);
 
         if (charsRes.data) {
@@ -83,6 +86,7 @@ function GameMasterPanel() {
         }
         if (tempsRes.data) setNpcTemplates(tempsRes.data.map(mapToCamelCase));
         if (imgsRes.data) setGmImages(imgsRes.data);
+        if (publicRes.data) setCurrentlyShowingImage(publicRes.data.image_url);
 
     } catch (error) {
         console.error("Erro fetch:", error);
@@ -158,12 +162,17 @@ function GameMasterPanel() {
   };
 
   const handleUpdateCharacter = async (u) => {
+      // Atualiza listas locais
       if (isViewingTemplate) setNpcTemplates(prev => prev.map(t => t.id === u.id ? u : t));
       else if (u.isNpc) setActiveNpcs(prev => prev.map(c => c.id === u.id ? u : c));
       else setCharacters(prev => prev.map(c => c.id === u.id ? u : c));
 
+      // Atualiza a visualização imediatamente (Correção de persistência visual)
+      setViewingCharacter(u);
+
       const d = { name: u.name, clan_id: u.clanId, fighting_style: u.fightingStyle, innate_body_id: u.innateBodyId, body_refinement_level: u.bodyRefinement_level, cultivation_stage: u.cultivation_stage, mastery_level: u.mastery_level, attributes: u.attributes, stats: u.stats, techniques: u.techniques, inventory: u.inventory, is_in_scene: u.isInScene };
       const table = isViewingTemplate ? 'npc_templates' : 'characters';
+      
       const { error } = await supabase.from(table).update(d).eq('id', u.id);
       if (!error) showNotification("Salvo!");
   };
@@ -184,6 +193,42 @@ function GameMasterPanel() {
       fetchAllData(); 
   };
 
+  // --- CONTROLE DE IMAGEM PÚBLICA ---
+  const handleShowImageToPlayers = async (imageUrl) => {
+      if (!imageUrl) return showNotification("Sem imagem!", "error");
+
+      // Tenta atualizar a linha existente na tabela public_view
+      // Como é uma tabela de configuração global, assumimos que existe pelo menos 1 registro ou criamos.
+      const { data: existing } = await supabase.from('public_view').select('id').limit(1);
+      
+      let error;
+      if (existing && existing.length > 0) {
+          const { error: updateError } = await supabase.from('public_view').update({ image_url: imageUrl, updated_at: new Date() }).eq('id', existing[0].id);
+          error = updateError;
+      } else {
+          const { error: insertError } = await supabase.from('public_view').insert({ image_url: imageUrl });
+          error = insertError;
+      }
+
+      if (!error) {
+          setCurrentlyShowingImage(imageUrl);
+          showNotification("Projetando imagem!", "success");
+      } else {
+          console.error(error);
+          showNotification("Erro ao projetar.", "error");
+      }
+  };
+
+  const handleStopShowingImage = async () => {
+      const { data: existing } = await supabase.from('public_view').select('id').limit(1);
+      if (existing && existing.length > 0) {
+          await supabase.from('public_view').update({ image_url: null, updated_at: new Date() }).eq('id', existing[0].id);
+      }
+      setCurrentlyShowingImage(null);
+      showNotification("Projeção encerrada.", "info");
+  };
+
+  // --- COMBATE ---
   const handleQuickStatChange = async (charId, statField, newValue) => {
      const val = parseInt(newValue) || 0;
      const updateList = (list) => list.map(c => c.id === charId ? { ...c, stats: { ...c.stats, [statField]: val } } : c);
@@ -234,6 +279,106 @@ function GameMasterPanel() {
   const handleViewCharacter = (c, isTemplate = false) => { setViewingCharacter(c); setIsViewingTemplate(isTemplate); };
   const handleBackToList = () => { setViewingCharacter(null); setIsViewingTemplate(false); };
 
+  // Definindo a função renderDashboardView antes de usá-la
+  const renderDashboardView = () => {
+    const categories = ["todos", ...new Set(gmImages.map((img) => img.category))];
+    const filteredImages = activeCategory === "todos" ? gmImages : gmImages.filter((img) => img.category === activeCategory);
+
+    return (
+        <>
+            <div className="flex justify-between items-start mb-10">
+                <div className="flex items-center gap-4">
+                    <div><h1 className="text-5xl font-bold text-brand-primary">Painel do Mestre</h1></div>
+                </div>
+                <div className="flex gap-4">
+                    {/* Botão de Parar Projeção Global */}
+                    {currentlyShowingImage && (
+                        <button onClick={handleStopShowingImage} className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2 animate-pulse">
+                            <EyeSlashIcon className="h-5 w-5" /> Parar Projeção
+                        </button>
+                    )}
+
+                    <button onClick={endCombat} className="text-red-500 text-sm font-bold flex items-center"><ArrowPathIcon className="h-4 w-4 mr-1"/> Reset</button>
+                    <button onClick={() => setIsStartCombatModalOpen(true)} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-6 rounded-lg flex items-center gap-2" disabled={!!combatData}><PlayIcon className="h-5 w-5" /> Novo Combate</button>
+                    <button onClick={signOut} className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg">Logout</button>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                    <div className="bg-white p-6 rounded-2xl shadow-lg">
+                        <h2 className="text-2xl font-bold text-brand-text mb-4 border-b pb-2">Jogadores</h2>
+                        {characters.length === 0 && isLoading ? <p className="text-gray-400">Carregando...</p> : (
+                            <div className="space-y-3">{characters.map((char) => <GmCharacterCard key={char.id} character={char} onViewCharacter={(c) => handleViewCharacter(c, false)} />)}</div>
+                        )}
+                    </div>
+                    
+                    <div className="bg-purple-50 p-6 rounded-2xl shadow-lg border border-purple-100">
+                        <div className="flex justify-between items-center mb-4 border-b pb-2 border-purple-200"><h2 className="text-2xl font-bold text-purple-900">Em Cena (Ativos)</h2></div>
+                        <div className="space-y-3">
+                            {activeNpcs.length === 0 && isLoading ? <p className="text-purple-400">Carregando...</p> : (
+                                activeNpcs.length === 0 ? <p className="text-gray-400 italic">Nenhum NPC instanciado na cena.</p> : activeNpcs.map((char) => (
+                                    <div key={char.id} className="relative group">
+                                        <GmCharacterCard character={char} onViewCharacter={(c) => handleViewCharacter(c, false)} />
+                                        
+                                        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            {/* BOTÃO MOSTRAR IMAGEM */}
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); handleShowImageToPlayers(char.imageUrl || char.image_url); }} 
+                                                className="bg-blue-100 p-1.5 rounded-full text-blue-600 hover:bg-blue-200 hover:text-blue-800 shadow-sm" 
+                                                title="Projetar para jogadores"
+                                            >
+                                                <PhotoIcon className="h-4 w-4" />
+                                            </button>
+
+                                            <button onClick={(e) => { e.stopPropagation(); handleRemoveFromScene(char.id); }} className="bg-red-100 p-1.5 rounded-full text-red-500 hover:bg-red-200 hover:text-red-700 shadow-sm" title="Remover da Cena">
+                                                <XMarkIcon className="h-4 w-4" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-2xl shadow-lg">
+                <div className="flex justify-between items-center mb-4 border-b pb-4"><h2 className="text-3xl font-bold text-brand-text">Galeria & Bestiário</h2><button onClick={() => setIsUploadModalOpen(true)} className="bg-green-500 text-white font-bold py-2 px-4 rounded-lg">Upload Imagem</button></div>
+                <div className="flex space-x-2 border-b mb-4 pb-2 overflow-x-auto">{categories.map((cat) => (<button key={cat} onClick={() => setActiveCategory(cat)} className={`px-4 py-2 text-sm font-semibold rounded-t-lg capitalize ${activeCategory === cat ? "bg-purple-500 text-white" : "text-gray-500"}`}>{cat}</button>))}</div>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                    {filteredImages.map((img) => {
+                        const template = npcTemplates.find(t => t.imageUrl === img.image_url);
+                        return (
+                            <div key={img.id} className={`group relative aspect-square bg-gray-100 rounded-lg overflow-hidden border-2 ${template ? 'border-purple-400' : 'border-transparent'}`}>
+                                <img src={img.image_url} alt={img.category} className="w-full h-full object-cover" />
+                                {template && <div className="absolute top-2 left-2 px-2 py-1 rounded text-xs font-bold text-white bg-blue-500 shadow-sm">{template.name}</div>}
+                                <div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center space-y-2 px-2 text-center">
+                                    
+                                    <button onClick={() => handleShowImageToPlayers(img.image_url)} className="px-3 py-1 mb-2 bg-orange-500 text-white rounded-full text-xs font-bold w-full flex justify-center items-center hover:bg-orange-600"><PhotoIcon className="h-4 w-4 mr-1"/> Projetar</button>
+
+                                    {!template ? (
+                                        <button onClick={() => handleCreateTemplateFromImage(img.image_url)} className="px-3 py-1 bg-blue-600 text-white rounded-full text-xs font-bold w-full flex justify-center items-center"><UserPlusIcon className="h-4 w-4 mr-1"/> Criar Modelo</button>
+                                    ) : (
+                                        <>
+                                            <button onClick={() => handleInstantiateNpc(template)} className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white rounded-full text-xs font-bold w-full flex justify-center items-center"><SparklesIcon className="h-4 w-4 mr-1"/> Por em Cena</button>
+                                            <button onClick={() => handleViewCharacter(template, true)} className="px-3 py-1 bg-purple-600 text-white rounded-full text-xs font-bold w-full flex justify-center items-center"><PencilSquareIcon className="h-4 w-4 mr-1"/> Editar Modelo</button>
+                                            <button onClick={() => handleDeleteTemplate(template.id)} className="px-3 py-1 bg-red-600 text-white rounded-full text-xs font-bold w-full flex justify-center items-center"><TrashIcon className="h-4 w-4 mr-1"/> Apagar Modelo</button>
+                                        </>
+                                    )}
+                                    <div className="flex space-x-2 mt-2"><button onClick={() => setViewingImage(img.image_url)} className="p-2 bg-gray-600 rounded-full text-white"><MagnifyingGlassIcon className="h-4 w-4" /></button><button onClick={() => handleDeleteImage(img)} className="p-2 bg-red-600 rounded-full text-white"><TrashIcon className="h-4 w-4" /></button></div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+
+            <StartCombatModal isOpen={isStartCombatModalOpen} onClose={() => setIsStartCombatModalOpen(false)} characters={[...characters, ...activeNpcs]} onStartCombat={createCombat} />
+            <GmImageUploadModal isOpen={isUploadModalOpen} onClose={() => setIsUploadModalOpen(false)} onUpload={handleImageUpload} existingCategories={[...new Set(gmImages.map((img) => img.category))]} />
+            <ImageViewerModal isOpen={viewingImage !== null} onClose={() => setViewingImage(null)} imageUrl={viewingImage} />
+        </>
+    );
+  };
+
   const renderCombatView = () => {
     const turnOrder = combatData.turn_order || [];
     const currentIdx = combatData.current_turn_index;
@@ -245,29 +390,44 @@ function GameMasterPanel() {
     return (
         <div className="max-w-6xl mx-auto">
             <div className="flex justify-between items-center mb-6 bg-white p-4 rounded-xl shadow-sm border border-purple-100">
-                <div><h2 className="text-3xl font-bold text-brand-text">Mesa de Combate</h2><p className="text-gray-500 text-sm">{combatData.status === 'pending_initiative' ? 'Aguardando Iniciativas...' : 'Rodada Ativa.'}</p></div>
+                <div className="flex items-center gap-4">
+                    <div><h2 className="text-3xl font-bold text-brand-text">Mesa de Combate</h2><p className="text-gray-500 text-sm">{combatData.status === 'pending_initiative' ? 'Aguardando Iniciativas...' : 'Rodada Ativa.'}</p></div>
+                </div>
                 <div className="flex gap-3">
-                    {combatData.status === 'pending_initiative' ? (
-                        <button onClick={startRound} className="flex items-center gap-2 bg-green-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-green-700 animate-pulse"><PlayIcon className="h-6 w-6" /> Iniciar Rodada</button>
-                    ) : (
-                        <button onClick={nextTurn} className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-blue-700"><ForwardIcon className="h-6 w-6" /> Próximo Turno</button>
+                    {/* BOTÃO PARAR PROJEÇÃO NO MODO COMBATE TAMBÉM */}
+                    {currentlyShowingImage && (
+                        <button onClick={handleStopShowingImage} className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2 animate-pulse">
+                            <EyeSlashIcon className="h-5 w-5" />
+                        </button>
                     )}
+                    
                     <button onClick={endCombat} className="flex items-center gap-2 bg-red-100 text-red-600 px-4 py-3 rounded-xl font-bold hover:bg-red-200 border border-red-200"><StopIcon className="h-6 w-6" /> Encerrar</button>
                 </div>
             </div>
 
-            {combatData.status === 'pending_initiative' && (
+            {combatData.status === 'pending_initiative' ? (
                 <div className="mb-6 bg-white p-4 rounded-xl shadow-sm border border-yellow-200">
                     <h4 className="font-bold text-gray-600 mb-2">Aguardando:</h4>
                     <div className="flex flex-wrap gap-3">
                         {turnOrder.map((p, idx) => (
                             <div key={idx} className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${p.initiative !== null ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
                                 <span className="font-semibold">{p.name}</span>
-                                {p.initiative === null && <button onClick={() => gmRoll(idx)} className="ml-2 p-1 bg-blue-100 text-blue-600 rounded hover:bg-blue-200" title="Rolar pelo jogador"><BoltIcon className="h-4 w-4" /></button>}
+                                {p.initiative === null ? (
+                                    <button onClick={() => gmRoll(idx)} className="ml-2 p-1 bg-blue-100 text-blue-600 rounded hover:bg-blue-200" title="Rolar"><BoltIcon className="h-4 w-4" /></button>
+                                ) : (
+                                   <span className="ml-2 font-bold text-green-600">{p.initiative}</span>
+                                )}
                             </div>
                         ))}
+                        {/* BOTÃO INICIAR RODADA AGORA DENTRO DO BLOCO */}
+                         <button onClick={startRound} className="ml-auto flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg font-bold shadow-md hover:bg-green-700"><PlayIcon className="h-5 w-5" /> Iniciar</button>
                     </div>
                 </div>
+            ) : (
+                /* BOTÃO PRÓXIMO TURNO */
+               <div className="flex justify-end mb-4">
+                   <button onClick={nextTurn} className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-blue-700"><ForwardIcon className="h-6 w-6" /> Próximo Turno</button>
+               </div>
             )}
 
             <div className="mb-8">
@@ -334,88 +494,20 @@ function GameMasterPanel() {
     );
   };
 
-  const renderDashboardView = () => {
-    const categories = ["todos", ...new Set(gmImages.map((img) => img.category))];
-    const filteredImages = activeCategory === "todos" ? gmImages : gmImages.filter((img) => img.category === activeCategory);
-
-    return (
-        <>
-            <div className="flex justify-between items-start mb-10">
-                <div className="flex items-center gap-4">
-                    <div><h1 className="text-5xl font-bold text-brand-primary">Painel do Mestre</h1></div>
-                </div>
-                <div className="flex gap-4">
-                    <button onClick={endCombat} className="text-red-500 text-sm font-bold flex items-center"><ArrowPathIcon className="h-4 w-4 mr-1"/> Reset</button>
-                    <button onClick={() => setIsStartCombatModalOpen(true)} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-6 rounded-lg flex items-center gap-2" disabled={!!combatData}><PlayIcon className="h-5 w-5" /> Novo Combate</button>
-                    <button onClick={signOut} className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg">Logout</button>
-                </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-                    <div className="bg-white p-6 rounded-2xl shadow-lg">
-                        <h2 className="text-2xl font-bold text-brand-text mb-4 border-b pb-2">Jogadores</h2>
-                        {characters.length === 0 && isLoading ? <p className="text-gray-400">Carregando...</p> : (
-                            <div className="space-y-3">{characters.map((char) => <GmCharacterCard key={char.id} character={char} onViewCharacter={(c) => handleViewCharacter(c, false)} />)}</div>
-                        )}
-                    </div>
-                    
-                    <div className="bg-purple-50 p-6 rounded-2xl shadow-lg border border-purple-100">
-                        <div className="flex justify-between items-center mb-4 border-b pb-2 border-purple-200"><h2 className="text-2xl font-bold text-purple-900">Em Cena (Ativos)</h2></div>
-                        <div className="space-y-3">
-                            {activeNpcs.length === 0 && isLoading ? <p className="text-purple-400">Carregando...</p> : (
-                                activeNpcs.length === 0 ? <p className="text-gray-400 italic">Nenhum NPC instanciado na cena.</p> : activeNpcs.map((char) => (
-                                    <div key={char.id} className="relative group">
-                                        <GmCharacterCard character={char} onViewCharacter={(c) => handleViewCharacter(c, false)} />
-                                        <button onClick={(e) => { e.stopPropagation(); handleRemoveFromScene(char.id); }} className="absolute top-2 right-2 bg-red-100 p-1 rounded-full text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" title="Remover da Cena"><XMarkIcon className="h-4 w-4" /></button>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-2xl shadow-lg">
-                <div className="flex justify-between items-center mb-4 border-b pb-4"><h2 className="text-3xl font-bold text-brand-text">Galeria & Bestiário</h2><button onClick={() => setIsUploadModalOpen(true)} className="bg-green-500 text-white font-bold py-2 px-4 rounded-lg">Upload Imagem</button></div>
-                <div className="flex space-x-2 border-b mb-4 pb-2 overflow-x-auto">{categories.map((cat) => (<button key={cat} onClick={() => setActiveCategory(cat)} className={`px-4 py-2 text-sm font-semibold rounded-t-lg capitalize ${activeCategory === cat ? "bg-purple-500 text-white" : "text-gray-500"}`}>{cat}</button>))}</div>
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                    {filteredImages.map((img) => {
-                        const template = npcTemplates.find(t => t.imageUrl === img.image_url);
-                        return (
-                            <div key={img.id} className={`group relative aspect-square bg-gray-100 rounded-lg overflow-hidden border-2 ${template ? 'border-purple-400' : 'border-transparent'}`}>
-                                <img src={img.image_url} alt={img.category} className="w-full h-full object-cover" />
-                                {template && <div className="absolute top-2 left-2 px-2 py-1 rounded text-xs font-bold text-white bg-blue-500 shadow-sm">{template.name}</div>}
-                                <div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center space-y-2 px-2 text-center">
-                                    {!template ? (
-                                        <button onClick={() => handleCreateTemplateFromImage(img.image_url)} className="px-3 py-1 bg-blue-600 text-white rounded-full text-xs font-bold w-full flex justify-center items-center"><UserPlusIcon className="h-4 w-4 mr-1"/> Criar Modelo</button>
-                                    ) : (
-                                        <>
-                                            <button onClick={() => handleInstantiateNpc(template)} className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white rounded-full text-xs font-bold w-full flex justify-center items-center"><SparklesIcon className="h-4 w-4 mr-1"/> Por em Cena</button>
-                                            <button onClick={() => handleViewCharacter(template, true)} className="px-3 py-1 bg-purple-600 text-white rounded-full text-xs font-bold w-full flex justify-center items-center"><PencilSquareIcon className="h-4 w-4 mr-1"/> Editar Modelo</button>
-                                            <button onClick={() => handleDeleteTemplate(template.id)} className="px-3 py-1 bg-red-600 text-white rounded-full text-xs font-bold w-full flex justify-center items-center"><TrashIcon className="h-4 w-4 mr-1"/> Apagar Modelo</button>
-                                        </>
-                                    )}
-                                    <div className="flex space-x-2 mt-2"><button onClick={() => setViewingImage(img.image_url)} className="p-2 bg-gray-600 rounded-full text-white"><MagnifyingGlassIcon className="h-4 w-4" /></button><button onClick={() => handleDeleteImage(img)} className="p-2 bg-red-600 rounded-full text-white"><TrashIcon className="h-4 w-4" /></button></div>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
-
-            <StartCombatModal isOpen={isStartCombatModalOpen} onClose={() => setIsStartCombatModalOpen(false)} characters={[...characters, ...activeNpcs]} onStartCombat={createCombat} />
-            <GmImageUploadModal isOpen={isUploadModalOpen} onClose={() => setIsUploadModalOpen(false)} onUpload={handleImageUpload} existingCategories={[...new Set(gmImages.map((img) => img.category))]} />
-            <ImageViewerModal isOpen={viewingImage !== null} onClose={() => setViewingImage(null)} imageUrl={viewingImage} />
-        </>
-    );
-  };
-
   if (viewingCharacter) {
+    // Garante que o Mestre pode editar qualquer um
     const isMyNpc = viewingCharacter.isNpc && viewingCharacter.userId === user.id;
     return (<> 
         <div className="bg-yellow-100 p-2 text-center text-yellow-800 font-bold border-b border-yellow-300">
-            {isViewingTemplate ? "MODO EDIÇÃO DE MODELO (BESTIÁRIO)" : "MODO EDIÇÃO DE INSTÂNCIA"}
+            {isViewingTemplate ? "MODO EDIÇÃO DE MODELO (BESTIÁRIO)" : "MODO EDIÇÃO DE INSTÂNCIA (Afeta Atual)"}
         </div>
-        <CharacterSheet character={viewingCharacter} onBack={handleBackToList} showNotification={showNotification} onUpdateCharacter={isMyNpc || isViewingTemplate ? handleUpdateCharacter : () => {}} isGmMode={true} /> 
+        <CharacterSheet 
+            character={viewingCharacter} 
+            onBack={handleBackToList} 
+            showNotification={showNotification} 
+            onUpdateCharacter={handleUpdateCharacter} // Função direta, sem restrição
+            isGmMode={true} 
+        /> 
         {notification && <NotificationToast message={notification.message} type={notification.type} onClose={() => setNotification(null)} />} 
     </>);
   }
